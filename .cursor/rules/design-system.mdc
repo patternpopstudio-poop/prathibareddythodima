@@ -1,0 +1,32 @@
+---
+description: Teleconsult platform design system — colors, typography, layout
+globs: apps/**/*.{tsx,css},packages/**/*.{tsx,css}
+alwaysApply: false
+---
+
+# Design System
+
+Read `docs/DESIGN_SYSTEM.md` for full tokens. Apply on every UI screen.
+
+## Colors
+- Primary olive: `#49630b`, `#5b7a12`, `#68852a`, `#8fb837`
+- Soft green bg: `#f0f5e4`
+- Page bg: `#f3f4f6` (gray-100); cards: white
+- Neutrals: `#000`, `#fff`, gray scale through `#4b5363` / `#838996`
+- Accent red (errors only): `#a6021a`
+
+## Typography
+- Display/H1: Stack Sans Headline — 72→48→44px, weight 500–600, -0.04em tracking
+- H2–H5 + body: Manrope — see doc for scale; body 14–16px, lh 120–150%
+- Labels: Manrope 12px semibold
+
+## Layout & style
+- Cards: white, 20px radius, soft shadow on gray-100 page bg
+- CTAs: olive green, rounded 10–20px, subtle hover
+- Generous whitespace; max-width ~1700px; section padding 48–80px
+- Mood: calm, premium clinic — warm and trustworthy, not cold/clinical
+
+## Do not
+- Use default Expo blue (`#3c87f7`) for primary actions
+- Use red for non-error UI
+- Ship screens without the shared token palette

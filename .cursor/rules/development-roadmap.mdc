@@ -1,0 +1,27 @@
+---
+description: Phased development plan and feature priorities for teleconsult monorepo
+alwaysApply: true
+---
+
+# Development Roadmap
+
+Read `docs/ROADMAP.md` before starting new features or modules.
+
+## Stack
+- Patient: React Native (Expo) — `apps/patient-mobile`
+- Doctor/admin: Next.js — `apps/doctor-admin`
+- Backend: Supabase + Node.js — `apps/backend`, `supabase/`
+- Shared types: `packages/shared-types`
+
+## Build order (do not skip ahead)
+0. Foundation → 1. Auth → 2. Profiles → 3. Booking → 4. Payments
+→ 5. Chat → 6. Rx + SOAP → 7. Closure + ratings → 8. Analytics/admin
+→ **9. Audio/video (LAST — not priority)**
+
+## Deferred (Phase 9 only)
+Voice/video calls, call logging, missed-call notifications, callback requests.
+
+## When implementing a feature
+1. Check which phase it belongs to in `docs/ROADMAP.md`
+2. Do not build Phase 9 features until Phases 0–8 are stable
+3. Extend `packages/shared-types` when adding new entities
