@@ -1,0 +1,2 @@
+-- Optional seed data for local development.
+-- Add sample employers / test fixtures here as needed.
