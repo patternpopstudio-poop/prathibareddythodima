@@ -1,4 +1,6 @@
-import { DateTimePicker } from '@expo/ui/community/datetime-picker';
+import DateTimePicker, {
+  type DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -47,6 +49,15 @@ export function DateField({
   const [open, setOpen] = useState(false);
   const selected = parseDate(value) ?? new Date(1990, 0, 1);
 
+  const handleChange = (event: DateTimePickerEvent, date?: Date) => {
+    if (event.type === 'dismissed') {
+      setOpen(false);
+      return;
+    }
+    if (date) onChange(formatDate(date));
+    if (Platform.OS === 'android') setOpen(false);
+  };
+
   if (Platform.OS === 'web') {
     return (
       <View style={styles.wrap}>
@@ -90,10 +101,8 @@ export function DateField({
               value={selected}
               maximumDate={maximumDate}
               minimumDate={minimumDate}
-              accentColor={Colors.primary900}
-              onValueChange={(_event, date) => {
-                onChange(formatDate(date));
-              }}
+              themeVariant="light"
+              onChange={handleChange}
             />
             <Pressable onPress={() => setOpen(false)} style={styles.doneButton}>
               <Text style={styles.doneText}>Done</Text>
@@ -103,16 +112,10 @@ export function DateField({
           <DateTimePicker
             mode="date"
             display="default"
-            presentation="dialog"
             value={selected}
             maximumDate={maximumDate}
             minimumDate={minimumDate}
-            accentColor={Colors.primary900}
-            onValueChange={(_event, date) => {
-              onChange(formatDate(date));
-              setOpen(false);
-            }}
-            onDismiss={() => setOpen(false)}
+            onChange={handleChange}
           />
         )
       ) : null}

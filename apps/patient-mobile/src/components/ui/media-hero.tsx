@@ -38,10 +38,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary50,
   },
   image: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
   },
   scrim: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
   },
   content: {
     flex: 1,

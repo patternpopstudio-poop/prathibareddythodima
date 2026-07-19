@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   ambient: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
   },
   blob: {

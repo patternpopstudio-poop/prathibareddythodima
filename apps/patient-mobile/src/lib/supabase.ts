@@ -11,9 +11,19 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
+/** AsyncStorage's web build needs `window`; use a noop during SSR so Expo stays up. */
+const authStorage =
+  typeof window === 'undefined'
+    ? {
+        getItem: (_key: string) => Promise.resolve(null),
+        setItem: (_key: string, _value: string) => Promise.resolve(),
+        removeItem: (_key: string) => Promise.resolve(),
+      }
+    : AsyncStorage;
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: AsyncStorage,
+    storage: authStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: Platform.OS === 'web',
