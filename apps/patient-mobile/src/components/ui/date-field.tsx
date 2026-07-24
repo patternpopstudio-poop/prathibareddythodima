@@ -2,17 +2,22 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 import { useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
+import { AppText } from '@/components/ui/app-text';
+import { Icon } from '@/components/ui/icon';
 import { Colors, FontFamily, Radius, Spacing } from '@/constants/theme';
 
 type Props = {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  error?: string;
+  error?: string | null;
+  placeholder?: string;
   maximumDate?: Date;
   minimumDate?: Date;
+  /** Leading calendar icon + chevron (basic-details redesign) */
+  withIcons?: boolean;
 };
 
 function formatDate(date: Date): string {
@@ -28,9 +33,15 @@ function parseDate(value: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function formatDisplay(value: string): string {
+function formatDisplay(value: string, withIcons: boolean): string {
   const date = parseDate(value);
   if (!date) return '';
+  if (withIcons) {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day} / ${month} / ${year}`;
+  }
   return date.toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'short',
@@ -43,11 +54,14 @@ export function DateField({
   value,
   onChange,
   error,
+  placeholder = 'Select date of birth',
   maximumDate = new Date(),
   minimumDate = new Date(1900, 0, 1),
+  withIcons = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const selected = parseDate(value) ?? new Date(1990, 0, 1);
+  const displayPlaceholder = withIcons ? 'DD / MM / YYYY' : placeholder;
 
   const handleChange = (event: DateTimePickerEvent, date?: Date) => {
     if (event.type === 'dismissed') {
@@ -61,36 +75,52 @@ export function DateField({
   if (Platform.OS === 'web') {
     return (
       <View style={styles.wrap}>
-        <Text style={styles.label}>{label}</Text>
-        <TextInput
-          value={value}
-          onChangeText={onChange}
-          placeholder="Select date of birth"
-          placeholderTextColor={Colors.placeholder}
-          // @ts-expect-error web-only native input type
-          type="date"
-          max={formatDate(maximumDate)}
-          min={formatDate(minimumDate)}
-          style={[styles.input, styles.webInput, error ? styles.inputError : null]}
-        />
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <AppText variant="label" style={styles.label}>
+          {label}
+        </AppText>
+        <View style={[styles.field, withIcons && styles.fieldIcons, error ? styles.fieldError : null]}>
+          {withIcons ? <Icon name="calendar" size={18} color={Colors.gray400} /> : null}
+          <TextInput
+            value={value}
+            onChangeText={onChange}
+            placeholder={displayPlaceholder}
+            placeholderTextColor={Colors.placeholder}
+            // @ts-expect-error web-only native input type
+            type="date"
+            max={formatDate(maximumDate)}
+            min={formatDate(minimumDate)}
+            style={[styles.webInput, withIcons && styles.webInputFlex]}
+          />
+          {withIcons ? <Icon name="chevronDown" size={18} color={Colors.gray400} /> : null}
+        </View>
+        {error ? <AppText variant="error">{error}</AppText> : null}
       </View>
     );
   }
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.label}>{label}</Text>
+      <AppText variant="label" style={styles.label}>
+        {label}
+      </AppText>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
         onPress={() => setOpen(true)}
-        style={[styles.input, error ? styles.inputError : null]}>
-        <Text style={value ? styles.value : styles.placeholder}>
-          {value ? formatDisplay(value) : 'Select date of birth'}
-        </Text>
+        style={[styles.field, withIcons && styles.fieldIcons, error ? styles.fieldError : null]}>
+        {withIcons ? <Icon name="calendar" size={18} color={Colors.gray400} /> : null}
+        <AppText
+          variant="body"
+          style={[
+            styles.value,
+            withIcons && styles.valueFlex,
+            !value && styles.placeholder,
+          ]}>
+          {value ? formatDisplay(value, withIcons) : displayPlaceholder}
+        </AppText>
+        {withIcons ? <Icon name="chevronDown" size={18} color={Colors.gray400} /> : null}
       </Pressable>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <AppText variant="error">{error}</AppText> : null}
 
       {open ? (
         Platform.OS === 'ios' ? (
@@ -105,7 +135,9 @@ export function DateField({
               onChange={handleChange}
             />
             <Pressable onPress={() => setOpen(false)} style={styles.doneButton}>
-              <Text style={styles.doneText}>Done</Text>
+              <AppText variant="bodyMedium" style={styles.doneText}>
+                Done
+              </AppText>
             </Pressable>
           </View>
         ) : (
@@ -128,43 +160,47 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   label: {
-    fontFamily: FontFamily.label,
-    fontSize: 12,
-    letterSpacing: 0.3,
     color: Colors.gray600,
+    letterSpacing: 0,
+    fontSize: 13,
   },
-  input: {
+  field: {
     minHeight: 52,
-    borderRadius: Radius.input,
-    borderWidth: 1,
+    borderRadius: 14,
+    borderWidth: 1.5,
     borderColor: Colors.gray200,
-    backgroundColor: Colors.gray50,
+    backgroundColor: Colors.surface,
     paddingHorizontal: Spacing.md,
     justifyContent: 'center',
   },
-  webInput: {
-    fontFamily: FontFamily.body,
-    fontSize: 16,
-    color: Colors.text,
+  fieldIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
   },
-  inputError: {
+  fieldError: {
     borderColor: Colors.accentRed,
     backgroundColor: '#fdf6f7',
   },
-  value: {
+  webInput: {
     fontFamily: FontFamily.body,
-    fontSize: 16,
+    fontSize: 15,
+    color: Colors.text,
+    paddingVertical: Spacing.md,
+  },
+  webInputFlex: {
+    flex: 1,
+  },
+  value: {
+    fontSize: 15,
+    lineHeight: 22,
     color: Colors.text,
   },
-  placeholder: {
-    fontFamily: FontFamily.body,
-    fontSize: 16,
-    color: Colors.placeholder,
+  valueFlex: {
+    flex: 1,
   },
-  error: {
-    fontFamily: FontFamily.body,
-    fontSize: 12,
-    color: Colors.accentRed,
+  placeholder: {
+    color: Colors.placeholder,
   },
   iosPicker: {
     borderRadius: Radius.input,
@@ -179,8 +215,6 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
   },
   doneText: {
-    fontFamily: FontFamily.label,
-    fontSize: 16,
     color: Colors.primary900,
   },
 });

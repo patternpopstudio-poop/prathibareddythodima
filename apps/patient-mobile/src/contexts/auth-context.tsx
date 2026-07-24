@@ -2,7 +2,9 @@ import type {
   B2CRegistrationInput,
   Patient,
   PatientAuthMetadata,
+  PatientBasicDetailsInput,
   PatientOnboardingInput,
+  UserRole,
 } from '@teleconsult/shared-types';
 import type { Session, User } from '@supabase/supabase-js';
 import {
@@ -15,20 +17,31 @@ import {
   type ReactNode,
 } from 'react';
 
-import { completePatientOnboarding, fetchPatientProfile } from '@/lib/patients';
+import { useInactivityTimeout } from '@/hooks/use-inactivity-timeout';
+import { assertPatientRole, getUserRole } from '@/lib/auth-role';
+import {
+  completePatientOnboarding,
+  fetchPatientProfile,
+  savePatientBasicDetails,
+} from '@/lib/patients';
+import { toE164Phone } from '@/lib/phone';
 import { supabase } from '@/lib/supabase';
 
 type AuthContextValue = {
   session: Session | null;
   user: User | null;
+  role: UserRole | null;
   patient: Patient | null;
   /** True until session + patient profile have both been resolved. */
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithPhoneOtp: (phone: string) => Promise<void>;
+  verifyPhoneOtp: (phone: string, token: string) => Promise<void>;
   signUp: (input: B2CRegistrationInput) => Promise<{ needsEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
   resendConfirmation: (email: string) => Promise<void>;
   refreshPatient: () => Promise<void>;
+  saveBasicDetails: (input: PatientBasicDetailsInput) => Promise<void>;
   completeOnboarding: (input: PatientOnboardingInput) => Promise<void>;
 };
 
@@ -50,6 +63,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const enforcePatientSession = useCallback(
+    async (nextSession: Session | null) => {
+      if (!nextSession?.user) {
+        setSession(null);
+        setPatient(null);
+        return null;
+      }
+
+      try {
+        assertPatientRole(nextSession.user);
+      } catch (err) {
+        await supabase.auth.signOut();
+        setSession(null);
+        setPatient(null);
+        throw err;
+      }
+
+      setSession(nextSession);
+      await loadPatient(nextSession.user.id);
+      return nextSession;
+    },
+    [loadPatient]
+  );
+
   useEffect(() => {
     let mounted = true;
 
@@ -59,15 +96,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(true);
       }
 
-      setSession(nextSession);
-
-      if (nextSession?.user) {
-        await loadPatient(nextSession.user.id);
-      } else {
-        setPatient(null);
+      try {
+        if (!nextSession?.user) {
+          setSession(null);
+          setPatient(null);
+        } else {
+          const role = getUserRole(nextSession.user);
+          if (role && role !== 'patient') {
+            await supabase.auth.signOut();
+            setSession(null);
+            setPatient(null);
+          } else {
+            setSession(nextSession);
+            await loadPatient(nextSession.user.id);
+          }
+        }
+      } finally {
+        if (mounted) setIsLoading(false);
       }
-
-      if (mounted) setIsLoading(false);
     }
 
     void supabase.auth.getSession().then(({ data }) => {
@@ -75,8 +121,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      // Token refresh must not re-open the routing gate — that briefly makes
-      // patient look "missing" and sends completed users back to onboarding.
       if (event === 'TOKEN_REFRESHED') {
         setSession(nextSession);
         return;
@@ -91,32 +135,78 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [loadPatient]);
 
+  const signOut = useCallback(async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+    setPatient(null);
+    setSession(null);
+  }, []);
+
+  useInactivityTimeout(Boolean(session), () => {
+    void signOut();
+  });
+
   const signIn = useCallback(
     async (email: string, password: string) => {
       setIsLoading(true);
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        await enforcePatientSession(data.session);
+      } catch (err) {
         setIsLoading(false);
-        throw error;
-      }
-
-      setSession(data.session);
-      if (data.session?.user) {
-        await loadPatient(data.session.user.id);
-      } else {
-        setPatient(null);
+        throw err;
       }
       setIsLoading(false);
     },
-    [loadPatient]
+    [enforcePatientSession]
+  );
+
+  const signInWithPhoneOtp = useCallback(async (phone: string) => {
+    const e164 = toE164Phone(phone);
+    if (!e164) throw new Error('Enter a valid mobile number.');
+
+    const { error } = await supabase.auth.signInWithOtp({
+      phone: e164,
+      options: {
+        shouldCreateUser: true,
+        data: {
+          role: 'patient',
+          account_source: 'b2c',
+          mobile: e164,
+        },
+      },
+    });
+    if (error) throw error;
+  }, []);
+
+  const verifyPhoneOtp = useCallback(
+    async (phone: string, token: string) => {
+      const e164 = toE164Phone(phone);
+      if (!e164) throw new Error('Enter a valid mobile number.');
+
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase.auth.verifyOtp({
+          phone: e164,
+          token: token.trim(),
+          type: 'sms',
+        });
+        if (error) throw error;
+        await enforcePatientSession(data.session);
+      } catch (err) {
+        setIsLoading(false);
+        throw err;
+      }
+      setIsLoading(false);
+    },
+    [enforcePatientSession]
   );
 
   const signUp = useCallback(async (input: B2CRegistrationInput) => {
     const metadata: PatientAuthMetadata = {
       role: 'patient',
       full_name: input.fullName.trim(),
-      date_of_birth: input.dateOfBirth,
-      gender: input.gender,
       mobile: input.mobile.trim(),
       account_source: 'b2c',
     };
@@ -131,12 +221,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const needsEmailConfirmation = !data.session;
     return { needsEmailConfirmation };
-  }, []);
-
-  const signOut = useCallback(async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    setPatient(null);
   }, []);
 
   const resendConfirmation = useCallback(async (email: string) => {
@@ -155,6 +239,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await loadPatient(session.user.id);
   }, [loadPatient, session?.user]);
 
+  const saveBasicDetails = useCallback(
+    async (input: PatientBasicDetailsInput) => {
+      if (!session?.user) throw new Error('Not signed in');
+      const updated = await savePatientBasicDetails(session.user.id, input);
+      setPatient(updated);
+    },
+    [session?.user]
+  );
+
   const completeOnboarding = useCallback(
     async (input: PatientOnboardingInput) => {
       if (!session?.user) throw new Error('Not signed in');
@@ -164,28 +257,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [session?.user]
   );
 
+  const role = getUserRole(session?.user);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       session,
       user: session?.user ?? null,
+      role,
       patient,
       isLoading,
       signIn,
+      signInWithPhoneOtp,
+      verifyPhoneOtp,
       signUp,
       signOut,
       resendConfirmation,
       refreshPatient,
+      saveBasicDetails,
       completeOnboarding,
     }),
     [
       session,
+      role,
       patient,
       isLoading,
       signIn,
+      signInWithPhoneOtp,
+      verifyPhoneOtp,
       signUp,
       signOut,
       resendConfirmation,
       refreshPatient,
+      saveBasicDetails,
       completeOnboarding,
     ]
   );

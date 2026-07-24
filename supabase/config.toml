@@ -255,8 +255,8 @@ otp_expiry = 3600
 # content_path = "./templates/password_changed_notification.html"
 
 [auth.sms]
-# Allow/disallow new user signups via SMS to your project.
-enable_signup = false
+# Local/dev: enable phone OTP signup without a paid SMS provider via test_otp below.
+enable_signup = true
 # If enabled, users need to confirm their phone number before signing in.
 enable_confirmations = false
 # Template for sending OTP to users
@@ -264,32 +264,36 @@ template = "Your code is {{ `{{ .Code }}` }}"
 # Controls the minimum amount of time that must pass before sending another sms otp.
 max_frequency = "5s"
 
-# Use pre-defined map of phone number to OTP for testing.
-# [auth.sms.test_otp]
-# 4152127777 = "123456"
+# Free local testing — no Twilio. Use these numbers with the fixed codes.
+# Client must send E.164 (e.g. +919876543210). Keys here omit "+".
+[auth.sms.test_otp]
+919876543210 = "123456"
+15555550100 = "123456"
 
-# Configure logged in session timeouts.
-# [auth.sessions]
+# Phase 1: 30-minute inactivity timeout (server-side session invalidation).
+[auth.sessions]
 # Force log out after the specified duration.
 # timebox = "24h"
 # Force log out if the user has been inactive longer than the specified duration.
-# inactivity_timeout = "8h"
+inactivity_timeout = "30m"
 
 # This hook runs before a new user is created and allows developers to reject the request based on the incoming user object.
 # [auth.hook.before_user_created]
 # enabled = true
 # uri = "pg-functions://postgres/auth/before-user-created-hook"
 
-# This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
-# [auth.hook.custom_access_token]
-# enabled = true
-# uri = "pg-functions://<database>/<schema>/<hook_name>"
+# Surface user_role claim from app_metadata for RLS / clients.
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/custom_access_token_hook"
 
-# Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
+# Local: enable Twilio stub so GoTrue keeps phone login on. Test OTP numbers
+# never hit the network. Real SMS still needs real Twilio credentials.
+# Set SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN=local-dev-unused in supabase/.env
 [auth.sms.twilio]
-enabled = false
-account_sid = ""
-message_service_sid = ""
+enabled = true
+account_sid = "AClocaldev000000000000000000000000"
+message_service_sid = "MGlocaldev000000000000000000000000"
 # DO NOT commit your Twilio auth token to git. Use environment variable substitution instead:
 auth_token = "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"
 

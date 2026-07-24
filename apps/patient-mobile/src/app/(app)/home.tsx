@@ -1,167 +1,262 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { router, type Href } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/app-text';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Icon, IconBadge } from '@/components/ui/icon';
+import { DoctorAvatar } from '@/components/ui/doctor-avatar';
+import { Icon } from '@/components/ui/icon';
 import { InitialsAvatar } from '@/components/ui/initials-avatar';
-import { MediaHero } from '@/components/ui/media-hero';
-import { SectionHeading } from '@/components/ui/page-header';
 import { Screen } from '@/components/ui/screen';
-import {
-  CARE_SERVICES,
-  CLINIC,
-  CLINICIAN_META,
-  QUICK_ACTIONS,
-} from '@/constants/clinic';
-import { ClinicImages } from '@/constants/images';
-import { Colors, Radius, Shadow, Spacing } from '@/constants/theme';
+import { CLINIC, EXPLORE_CARE, QUICK_ACTIONS } from '@/constants/clinic';
+import { BrandImages } from '@/constants/images';
+import { Colors, FontFamily, Radius, Shadow, Spacing } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
+import { fetchNextUpcomingBooking, type UpcomingBooking } from '@/lib/bookings';
 import { getFirstName } from '@/lib/patient-display';
+import { formatSlotShortDate, formatSlotTimeLabel } from '@/lib/slot-display';
 
 export default function HomeScreen() {
   const { patient } = useAuth();
   const firstName = getFirstName(patient?.fullName);
+  const [upcoming, setUpcoming] = useState<UpcomingBooking | null>(null);
+  const [apptLoading, setApptLoading] = useState(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setApptLoading(true);
+      void fetchNextUpcomingBooking()
+        .then((row) => {
+          if (active) setUpcoming(row);
+        })
+        .catch(() => {
+          if (active) setUpcoming(null);
+        })
+        .finally(() => {
+          if (active) setApptLoading(false);
+        });
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
 
   return (
     <Screen>
       <View style={styles.topBar}>
-        <View style={styles.greeting}>
-          <AppText variant="eyebrow" style={styles.brand}>
-            TELECONSULT
-          </AppText>
-          <AppText variant="h2">Hello, {firstName}</AppText>
-          <AppText variant="muted">What would you like to do today?</AppText>
-        </View>
+        <AppText variant="eyebrow" style={styles.brand}>
+          TELECONSULT
+        </AppText>
         <InitialsAvatar
           name={patient?.fullName}
+          size={44}
           accessibilityLabel="Open profile"
           onPress={() => router.push('/(app)/profile')}
         />
       </View>
 
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => router.push('/(app)/book')}
-        style={({ pressed }) => [styles.heroPress, pressed && styles.pressed]}>
-        <MediaHero
-          source={ClinicImages.hero}
-          height={240}
-          scrim="rgba(33, 48, 8, 0.72)"
-          contentStyle={styles.heroBody}>
-          <View style={styles.heroTop}>
-            <IconBadge
-              name="book"
-              size={24}
-              badgeSize={52}
-              backgroundColor="rgba(255,255,255,0.18)"
-              color={Colors.white}
-            />
-            <View style={styles.ratingPill}>
-              <Icon name="star" size={14} color={Colors.primary400} />
-              <AppText variant="label" style={styles.ratingText}>
-                {CLINIC.rating.toFixed(1)} · {CLINIC.reviewCount} reviews
+      <View style={styles.greeting}>
+        <AppText variant="h2" style={styles.hello}>
+          Hello, {firstName} 👋
+        </AppText>
+        <AppText variant="muted" style={styles.greetingSub}>
+          How can we help with your health today?
+        </AppText>
+      </View>
+
+      <View style={styles.bookCard}>
+        <View style={styles.bookCopy}>
+          <View style={styles.startBadge}>
+            <AppText variant="label" style={styles.startBadgeText}>
+              ✨ START HERE
+            </AppText>
+          </View>
+          <AppText variant="h3" style={styles.bookTitle}>
+            Book a consultation
+          </AppText>
+          <AppText variant="muted" style={styles.bookSub}>
+            {CLINIC.tagline}
+          </AppText>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Book now"
+            onPress={() => router.push('/(app)/book')}
+            style={({ pressed }) => [styles.bookBtn, pressed && styles.pressed]}>
+            <AppText variant="bodyMedium" style={styles.bookBtnLabel}>
+              Book now
+            </AppText>
+            <View style={styles.bookBtnArrow}>
+              <Icon name="chevron" size={16} color={Colors.primary900} />
+            </View>
+          </Pressable>
+        </View>
+        <Image
+          source={BrandImages.bookConsultHero}
+          style={styles.bookArt}
+          contentFit="contain"
+          transition={0}
+        />
+      </View>
+
+      <View style={styles.sectionHead}>
+        <AppText variant="h3" style={styles.sectionTitle}>
+          Upcoming appointment
+        </AppText>
+        <Pressable onPress={() => router.push('/(app)/book')} hitSlop={8}>
+          <AppText variant="bodyMedium" style={styles.viewAll}>
+            View all
+          </AppText>
+        </Pressable>
+      </View>
+
+      {apptLoading ? (
+        <View style={styles.apptLoading}>
+          <ActivityIndicator color={Colors.primary900} />
+        </View>
+      ) : upcoming ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() =>
+            router.push(`/(app)/booking-confirmed?id=${upcoming.booking.id}` as Href)
+          }
+          style={({ pressed }) => [styles.apptCard, pressed && styles.pressed]}>
+          <DoctorAvatar
+            name={upcoming.doctor.fullName}
+            photoUrl={upcoming.doctor.photoUrl}
+            size={56}
+          />
+          <View style={styles.apptBody}>
+            <View style={styles.apptTop}>
+              <View style={styles.apptCopy}>
+                <AppText variant="bodyMedium" style={styles.apptName}>
+                  {upcoming.doctor.fullName || 'Doctor'}
+                </AppText>
+                <AppText variant="muted" style={styles.apptSpecialty}>
+                  Teleconsult
+                </AppText>
+              </View>
+              <Icon name="chevron" size={18} color={Colors.gray400} />
+            </View>
+
+            <View style={styles.apptMetaRow}>
+              <View style={styles.apptMetaItem}>
+                <Icon name="calendar" size={14} color={Colors.gray500} />
+                <AppText variant="muted" style={styles.apptMetaText}>
+                  {formatSlotShortDate(upcoming.slot.startsAt)}
+                </AppText>
+              </View>
+              <View style={styles.apptMetaItem}>
+                <Icon name="clock" size={14} color={Colors.gray500} />
+                <AppText variant="muted" style={styles.apptMetaText}>
+                  {formatSlotTimeLabel(upcoming.slot.startsAt)}
+                </AppText>
+              </View>
+            </View>
+
+            <View style={styles.confirmedPill}>
+              <AppText variant="label" style={styles.confirmedText}>
+                Confirmed
               </AppText>
             </View>
           </View>
-          <AppText variant="label" style={styles.heroEyebrow}>
-            ONLINE BOOKING
-          </AppText>
-          <AppText variant="h3" style={styles.heroTitle}>
-            Book a consultation
-          </AppText>
-          <AppText variant="muted" style={styles.heroCopy}>
-            {CLINIC.tagline}
-          </AppText>
-          <View style={styles.heroCta}>
-            <AppText variant="bodyMedium" style={styles.heroCtaText}>
-              Book online
-            </AppText>
-            <Icon name="chevron" size={18} color={Colors.white} />
+        </Pressable>
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push('/(app)/book')}
+          style={({ pressed }) => [styles.apptEmpty, pressed && styles.pressed]}>
+          <View style={styles.apptEmptyIcon}>
+            <Icon name="calendar" size={22} color={Colors.primary900} />
           </View>
-        </MediaHero>
-      </Pressable>
+          <View style={styles.apptEmptyCopy}>
+            <AppText variant="bodyMedium">No upcoming appointments</AppText>
+            <AppText variant="muted" style={styles.apptSpecialty}>
+              Book a consultation to get started.
+            </AppText>
+          </View>
+          <Icon name="chevron" size={18} color={Colors.gray400} />
+        </Pressable>
+      )}
 
-      <SectionHeading title="Quick access" description="Your care tools in one place." />
+      <View style={styles.sectionBlock}>
+        <AppText variant="h3" style={styles.sectionTitle}>
+          Quick access
+        </AppText>
+        <AppText variant="muted" style={styles.sectionSub}>
+          Your health tools in one place.
+        </AppText>
+      </View>
 
-      <View style={styles.quickRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.quickRow}>
         {QUICK_ACTIONS.map((action) => (
           <Pressable
             key={action.id}
             accessibilityRole="button"
-            onPress={() => router.push(action.href)}
+            onPress={() => router.push(action.href as Href)}
             style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}>
-            <IconBadge name={action.icon} size={22} badgeSize={44} />
-            <AppText variant="bodyMedium">{action.title}</AppText>
+            <Image
+              source={action.image}
+              style={styles.quickImage}
+              contentFit="contain"
+              transition={0}
+            />
+            <AppText variant="bodyMedium" style={styles.quickTitle}>
+              {action.title}
+            </AppText>
             <AppText variant="muted" style={styles.quickSub} numberOfLines={2}>
               {action.subtitle}
             </AppText>
           </Pressable>
         ))}
+      </ScrollView>
+
+      <View style={styles.exploreHeader}>
+        <View style={styles.sectionHead}>
+          <AppText variant="h3" style={styles.sectionTitle}>
+            Explore care
+          </AppText>
+          <Pressable onPress={() => router.push('/(app)/book')} hitSlop={8}>
+            <AppText variant="bodyMedium" style={styles.viewAll}>
+              View all
+            </AppText>
+          </Pressable>
+        </View>
+        <AppText variant="muted" style={styles.sectionSub}>
+          Find the right care for you.
+        </AppText>
       </View>
 
-      <SectionHeading title="Care services" description="Tap a specialty to start booking." />
-
-      <View style={styles.serviceGrid}>
-        {CARE_SERVICES.map((service) => (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.exploreRow}>
+        {EXPLORE_CARE.map((item) => (
           <Pressable
-            key={service.id}
+            key={item.id}
             accessibilityRole="button"
             onPress={() =>
-              router.push({ pathname: '/(app)/book', params: { service: service.id } })
+              router.push({ pathname: '/(app)/book', params: { service: item.id } })
             }
-            style={({ pressed }) => [styles.serviceCard, pressed && styles.pressed]}>
-            <Image
-              source={service.image}
-              style={styles.serviceImage}
-              contentFit="cover"
-              transition={200}
-            />
-            <View style={styles.serviceBody}>
-              <IconBadge name={service.icon} size={18} badgeSize={36} />
-              <AppText variant="bodyMedium">{service.title}</AppText>
-              <AppText variant="muted" numberOfLines={2} style={styles.serviceCopy}>
-                {service.description}
+            style={({ pressed }) => [styles.exploreCard, pressed && styles.pressed]}>
+            <View style={styles.exploreImageWrap}>
+              <Image source={item.image} style={styles.exploreImage} contentFit="contain" />
+            </View>
+            <View style={styles.exploreBody}>
+              <AppText variant="bodyMedium" style={styles.exploreTitle}>
+                {item.title}
+              </AppText>
+              <AppText variant="muted" style={styles.exploreSub} numberOfLines={2}>
+                {item.description}
               </AppText>
             </View>
           </Pressable>
         ))}
-      </View>
-
-      <Card style={styles.clinicianCard} padded={false}>
-        <Image
-          source={CLINIC.photo}
-          style={styles.clinicianPhoto}
-          contentFit="cover"
-          transition={250}
-        />
-        <View style={styles.clinicianContent}>
-          <View style={styles.clinicianHeader}>
-            <IconBadge name="stethoscope" size={20} badgeSize={44} />
-            <View style={styles.clinicianCopy}>
-              <AppText variant="section">YOUR CLINICIAN</AppText>
-              <AppText variant="h3">{CLINIC.doctorName}</AppText>
-              <AppText variant="muted">{CLINIC.specialty}</AppText>
-            </View>
-          </View>
-          <AppText variant="body">{CLINIC.about}</AppText>
-          <View style={styles.clinicMeta}>
-            {CLINICIAN_META.map((row) => (
-              <View key={row.text} style={styles.metaRow}>
-                <Icon name={row.icon} size={16} color={Colors.primary600} />
-                {row.strong ? (
-                  <AppText variant="bodyMedium">{row.text}</AppText>
-                ) : (
-                  <AppText variant="muted">{row.text}</AppText>
-                )}
-              </View>
-            ))}
-          </View>
-          <Button title="Book with Dr. Reddy" onPress={() => router.push('/(app)/book')} />
-        </View>
-      </Card>
+      </ScrollView>
     </Screen>
   );
 }
@@ -169,153 +264,274 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: Spacing.md,
-    marginTop: Spacing.md,
-  },
-  greeting: {
-    flex: 1,
-    gap: 2,
   },
   brand: {
-    letterSpacing: 1.6,
-    marginBottom: Spacing.xs,
+    letterSpacing: 1.8,
+    fontSize: 12,
   },
-  heroPress: {
+  greeting: {
+    gap: 4,
+    marginTop: -Spacing.xs,
+  },
+  hello: {
+    fontSize: 28,
+    lineHeight: 34,
+    letterSpacing: -0.6,
+  },
+  greetingSub: {
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  bookCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary50,
     borderRadius: Radius.card,
-    ...Shadow.soft,
-  },
-  heroBody: {
-    padding: Spacing.lg,
+    paddingVertical: Spacing.lg,
+    paddingLeft: Spacing.lg,
+    paddingRight: Spacing.sm,
     gap: Spacing.sm,
-    minHeight: 240,
+    overflow: 'hidden',
+    minHeight: 188,
   },
-  heroTop: {
+  bookCopy: {
+    flex: 1,
+    gap: Spacing.sm,
+    zIndex: 1,
+  },
+  startBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.white,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: 5,
+  },
+  startBadgeText: {
+    color: Colors.primary900,
+    letterSpacing: 0.5,
+    fontSize: 11,
+  },
+  bookTitle: {
+    fontSize: 20,
+    lineHeight: 26,
+  },
+  bookSub: {
+    fontSize: 13,
+    lineHeight: 18,
+    maxWidth: 180,
+  },
+  bookBtn: {
+    alignSelf: 'flex-start',
+    marginTop: Spacing.xs,
+    minHeight: 44,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.primary900,
+    paddingLeft: Spacing.lg,
+    paddingRight: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  bookBtnLabel: {
+    color: Colors.white,
+    fontFamily: FontFamily.label,
+    fontSize: 15,
+  },
+  bookBtnArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bookArt: {
+    width: 128,
+    height: 128,
+    marginRight: -Spacing.xs,
+  },
+  sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: Spacing.xs,
   },
-  ratingPill: {
-    flexDirection: 'row',
+  sectionBlock: {
+    gap: 2,
+  },
+  exploreHeader: {
+    gap: 2,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    lineHeight: 24,
+  },
+  sectionSub: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  viewAll: {
+    color: Colors.primary900,
+    fontSize: 14,
+  },
+  apptLoading: {
+    minHeight: 96,
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
-    borderRadius: Radius.pill,
+    justifyContent: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  ratingText: {
-    color: Colors.white,
-    letterSpacing: 0.2,
-  },
-  heroEyebrow: {
-    color: Colors.primary400,
-    letterSpacing: 1.2,
-  },
-  heroTitle: {
-    color: Colors.white,
-  },
-  heroCopy: {
-    color: 'rgba(255,255,255,0.78)',
-    marginBottom: Spacing.xs,
-  },
-  heroCta: {
-    alignSelf: 'flex-start',
+  apptCard: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginTop: Spacing.sm,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.button,
-  },
-  heroCtaText: {
-    color: Colors.white,
-  },
-  quickRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  quickCard: {
-    flex: 1,
+    alignItems: 'flex-start',
+    gap: Spacing.md,
     backgroundColor: Colors.surface,
     borderRadius: Radius.card,
     borderWidth: 1,
     borderColor: Colors.border,
     padding: Spacing.md,
-    gap: Spacing.sm,
     ...Shadow.card,
+  },
+  apptEmpty: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.md,
+    ...Shadow.card,
+  },
+  apptEmptyIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.primary50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  apptEmptyCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  apptBody: {
+    flex: 1,
+    gap: Spacing.sm,
+  },
+  apptTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+  },
+  apptCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  apptName: {
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  apptSpecialty: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  apptMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.md,
+  },
+  apptMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  apptMetaText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  confirmedPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.primary50,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: 4,
+  },
+  confirmedText: {
+    color: Colors.primary700,
+    letterSpacing: 0,
+    fontSize: 11,
+  },
+  quickRow: {
+    gap: Spacing.sm,
+    paddingRight: Spacing.lg,
+  },
+  quickCard: {
+    width: 128,
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+    ...Shadow.soft,
+  },
+  quickImage: {
+    width: 44,
+    height: 44,
+  },
+  quickTitle: {
+    fontSize: 14,
+    lineHeight: 18,
   },
   quickSub: {
     fontSize: 12,
     lineHeight: 16,
   },
-  serviceGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  exploreRow: {
     gap: Spacing.sm,
+    paddingRight: Spacing.lg,
   },
-  serviceCard: {
-    width: '48%',
-    flexGrow: 1,
-    minWidth: '46%',
+  exploreCard: {
+    width: 148,
     backgroundColor: Colors.surface,
-    borderRadius: Radius.card,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: Colors.border,
     overflow: 'hidden',
-    ...Shadow.card,
+    ...Shadow.soft,
   },
-  serviceImage: {
-    width: '100%',
+  exploreImageWrap: {
+    height: 110,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xs,
+  },
+  exploreImage: {
+    width: 88,
     height: 88,
-    backgroundColor: Colors.primary50,
   },
-  serviceBody: {
-    padding: Spacing.md,
-    gap: Spacing.sm,
+  exploreBody: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    gap: 4,
   },
-  serviceCopy: {
-    fontSize: 13,
+  exploreTitle: {
+    fontSize: 14,
     lineHeight: 18,
   },
+  exploreSub: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
   pressed: {
-    opacity: 0.88,
+    opacity: 0.9,
     transform: [{ scale: 0.985 }],
-  },
-  clinicianCard: {
-    overflow: 'hidden',
-  },
-  clinicianPhoto: {
-    width: '100%',
-    height: 220,
-    backgroundColor: Colors.primary50,
-  },
-  clinicianContent: {
-    padding: Spacing.lg,
-    gap: Spacing.md,
-  },
-  clinicianHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.md,
-  },
-  clinicianCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  clinicMeta: {
-    gap: Spacing.sm,
-    paddingTop: Spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
   },
 });

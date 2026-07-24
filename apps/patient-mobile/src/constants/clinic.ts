@@ -1,20 +1,25 @@
 import type { AppIconName } from '@/components/ui/icon';
-import { ClinicImages } from '@/constants/images';
+import { BrandImages, ClinicImages } from '@/constants/images';
 
 /** Clinic content aligned with https://prathibareddythodima.com/ */
 
 export const CLINIC = {
   doctorName: 'Dr. Prathiba Reddy',
   specialty: 'ENT, Allergy & Vertigo Specialist',
+  /** Compact label for home appointment card */
+  specialtyShort: 'ENT Specialist',
   experienceYears: 10,
   rating: 5.0,
   reviewCount: 24,
   clinicName: 'Care Hospitals, Banjara Hills',
-  tagline: 'Expert ENT, Allergy & Vertigo care. Personalized for every patient.',
+  tagline: 'Connect with top specialists from the comfort of your home.',
   about:
     'Consultant ENT Surgeon with over 10 years of experience in ear, nose, and throat care, with a special interest in allergy and vertigo.',
-  languages: ['English', 'Telugu', 'Hindi', 'Kannada'],
+  languages: ['English', 'Hindi', 'Tamil', 'Telugu'],
   photo: ClinicImages.doctor,
+  /** Shown when patient tries to cancel inside the free-cancel cutoff window. */
+  cancelContactMessage:
+    'Please contact Care Hospitals, Banjara Hills to cancel or reschedule this appointment.',
 } as const;
 
 export const CLINICIAN_META: { icon: AppIconName; text: string; strong?: boolean }[] = [
@@ -27,23 +32,58 @@ export const QUICK_ACTIONS = [
   {
     id: 'profile',
     title: 'Profile',
-    subtitle: 'Details & health history',
-    icon: 'person' as const,
+    subtitle: 'Health details & history',
+    image: BrandImages.quickAccess.profile,
     href: '/(app)/profile' as const,
   },
   {
     id: 'prescriptions',
-    title: 'Rx',
-    subtitle: 'Prescription history',
-    icon: 'medication' as const,
+    title: 'Prescriptions',
+    subtitle: 'View your prescriptions',
+    image: BrandImages.quickAccess.prescriptions,
     href: '/(app)/prescriptions' as const,
   },
   {
     id: 'labs',
     title: 'Labs',
     subtitle: 'Reports & uploads',
-    icon: 'lab' as const,
+    image: BrandImages.quickAccess.labs,
     href: '/(app)/lab-reports' as const,
+  },
+  {
+    id: 'insurance',
+    title: 'Insurance',
+    subtitle: 'Policy & claims',
+    image: BrandImages.quickAccess.insurance,
+    href: '/(app)/profile' as const,
+  },
+] as const;
+
+/** Explore care cards on home (mockup specialties). */
+export const EXPLORE_CARE = [
+  {
+    id: 'ent',
+    title: 'ENT Care',
+    description: 'Ear, nose & throat',
+    image: BrandImages.exploreCare.ent,
+  },
+  {
+    id: 'cardiology',
+    title: 'Cardiology',
+    description: 'Heart & circulation',
+    image: BrandImages.exploreCare.cardiology,
+  },
+  {
+    id: 'dermatology',
+    title: 'Dermatology',
+    description: 'Skin & hair care',
+    image: BrandImages.exploreCare.dermatology,
+  },
+  {
+    id: 'gastro',
+    title: 'Gastroenterology',
+    description: 'Digestion & care',
+    image: BrandImages.exploreCare.gastro,
   },
 ] as const;
 

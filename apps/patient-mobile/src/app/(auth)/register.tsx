@@ -1,4 +1,3 @@
-import type { Gender } from '@teleconsult/shared-types';
 import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet } from 'react-native';
@@ -6,14 +5,11 @@ import { StyleSheet } from 'react-native';
 import { AppText } from '@/components/ui/app-text';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ChipSelect } from '@/components/ui/chip-select';
-import { DateField } from '@/components/ui/date-field';
 import { PageHeader } from '@/components/ui/page-header';
 import { Screen } from '@/components/ui/screen';
 import { TextField } from '@/components/ui/text-field';
-import { useAuth } from '@/contexts/auth-context';
 import { Colors, FontFamily, Spacing } from '@/constants/theme';
-import { GENDER_OPTIONS } from '@/lib/patient-display';
+import { useAuth } from '@/contexts/auth-context';
 import {
   validateRegisterForm,
   type RegisterFieldErrors,
@@ -22,8 +18,6 @@ import {
 export default function RegisterScreen() {
   const { signUp } = useAuth();
   const [fullName, setFullName] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
-  const [gender, setGender] = useState<Gender | null>(null);
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
   const [password, setPassword] = useState('');
@@ -45,8 +39,6 @@ export default function RegisterScreen() {
 
     const errors = validateRegisterForm({
       fullName,
-      dateOfBirth,
-      gender,
       email,
       mobile,
       password,
@@ -62,8 +54,6 @@ export default function RegisterScreen() {
     try {
       const result = await signUp({
         fullName,
-        dateOfBirth,
-        gender: gender!,
         email,
         mobile: mobile.trim().replace(/[\s-]/g, ''),
         password,
@@ -89,11 +79,10 @@ export default function RegisterScreen() {
       <PageHeader
         eyebrow="GET STARTED"
         title="Create account"
-        description="We will email you a confirmation link before activation."
+        description="A few details to get you booking — you can add your health profile later."
       />
 
       <Card style={styles.card}>
-        <AppText variant="h3">About you</AppText>
         <TextField
           label="Full name"
           value={fullName}
@@ -104,29 +93,6 @@ export default function RegisterScreen() {
           autoComplete="name"
           error={fieldErrors.fullName}
         />
-        <DateField
-          label="Date of birth"
-          value={dateOfBirth}
-          onChange={(value) => {
-            setDateOfBirth(value);
-            clearFieldError('dateOfBirth');
-          }}
-          error={fieldErrors.dateOfBirth}
-        />
-        <ChipSelect
-          label="Gender"
-          options={GENDER_OPTIONS}
-          value={gender}
-          onChange={(value) => {
-            setGender(value);
-            clearFieldError('gender');
-          }}
-          error={fieldErrors.gender}
-        />
-      </Card>
-
-      <Card style={styles.card}>
-        <AppText variant="h3">Account details</AppText>
         <TextField
           label="Email"
           value={email}

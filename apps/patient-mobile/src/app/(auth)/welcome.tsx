@@ -1,82 +1,91 @@
-import { Link } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
+import { router } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useRef } from 'react';
+import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AppText } from '@/components/ui/app-text';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { MediaHero } from '@/components/ui/media-hero';
-import { Screen } from '@/components/ui/screen';
-import { ClinicImages } from '@/constants/images';
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { BrandImages } from '@/constants/images';
+import { Colors, Radius } from '@/constants/theme';
 
+/** Exact splash from the design mockup — edge-to-edge. */
 export default function WelcomeScreen() {
+  const insets = useSafeAreaInsets();
+  const progress = useRef(new Animated.Value(0.28)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: 2600,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      if (finished) router.replace('/(auth)/login');
+    });
+  }, [progress]);
+
+  function goLogin() {
+    router.replace('/(auth)/login');
+  }
+
+  const fillWidth = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['28%', '100%'],
+  });
+
   return (
-    <Screen>
-      <View style={styles.hero}>
-        <MediaHero source={ClinicImages.welcome} height={220} contentStyle={styles.heroBrand}>
-          <View style={styles.mark}>
-            <View style={styles.markInner} />
+    <View style={styles.root}>
+      <StatusBar style="dark" />
+      <Pressable
+        style={styles.press}
+        accessibilityRole="button"
+        accessibilityLabel="Continue to login"
+        onPress={goLogin}>
+        <Image
+          source={BrandImages.splash}
+          style={styles.art}
+          contentFit="cover"
+          contentPosition="center"
+          transition={0}
+        />
+
+        <View style={[styles.progressWrap, { bottom: Math.max(insets.bottom, 12) + 10 }]}>
+          <View style={styles.progressTrack}>
+            <Animated.View style={[styles.progressFill, { width: fillWidth }]} />
           </View>
-          <AppText variant="label" style={styles.brandOnImage}>
-            TELECONSULT
-          </AppText>
-        </MediaHero>
-
-        <AppText variant="display">Care that starts with you</AppText>
-        <AppText variant="muted" style={styles.support}>
-          Create your account or sign in to complete your health profile and book consultations.
-        </AppText>
-      </View>
-
-      <Card style={styles.card}>
-        <Link href="/(auth)/register" asChild>
-          <Button title="Create account" />
-        </Link>
-        <Link href="/(auth)/login" asChild>
-          <Button title="Sign in" variant="secondary" />
-        </Link>
-      </Card>
-    </Screen>
+        </View>
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: {
+  root: {
     flex: 1,
-    justifyContent: 'flex-end',
-    gap: Spacing.md,
-    paddingBottom: Spacing.xl,
+    backgroundColor: Colors.splashBackground,
   },
-  heroBrand: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: Spacing.sm,
-    padding: Spacing.md,
-    justifyContent: 'flex-start',
+  press: {
+    flex: 1,
   },
-  mark: {
-    width: 40,
-    height: 40,
+  art: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  progressWrap: {
+    position: 'absolute',
+    left: 28,
+    right: 28,
+  },
+  progressTrack: {
+    height: 6,
     borderRadius: Radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: 'rgba(107, 174, 61, 0.22)',
+    overflow: 'hidden',
   },
-  markInner: {
-    width: 16,
-    height: 16,
+  progressFill: {
+    height: '100%',
     borderRadius: Radius.pill,
     backgroundColor: Colors.primary900,
-  },
-  brandOnImage: {
-    color: Colors.white,
-    letterSpacing: 1.6,
-    marginBottom: 10,
-  },
-  support: {
-    maxWidth: 320,
-  },
-  card: {
-    gap: Spacing.sm,
   },
 });

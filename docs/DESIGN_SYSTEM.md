@@ -2,30 +2,34 @@
 
 Canonical visual language for the Hospital Tele-Consulting Platform. Apply across **patient-mobile** (React Native / Expo) and **doctor-admin** (Next.js).
 
-**Mood:** Calm, trustworthy, modern clinic — premium and warm, not clinical or cold.
+**Mood:** Fresh, trustworthy telehealth — grass green accents on clean white, calm and approachable.
+
+**Patient mobile source of truth:** redesign mockups (splash, phone login, OTP, home). Prefer those layouts when they differ from older clinic-photo patterns.
 
 ---
 
 ## Colors
 
-### Primary (olive green)
+### Primary (grass green)
 
 | Token | Hex | Use |
 |-------|-----|-----|
-| `primary-900` | `#49630b` | Primary CTA, key accents |
-| `primary-700` | `#5b7a12` | CTA hover / active |
-| `primary-600` | `#68852a` | Secondary accents |
-| `primary-400` | `#8fb837` | Highlights, badges |
-| `primary-50` | `#f0f5e4` | Soft green backgrounds |
+| `primary-900` | `#6bae3d` | Primary CTA, logo, key accents (splash green) |
+| `primary-700` | `#5c9a32` | CTA hover / active |
+| `primary-600` | `#7bbc52` | Secondary accents |
+| `primary-400` | `#9fd07a` | Highlights, badges |
+| `primary-100` | `#e5f3d8` | Soft tinted bars / banners |
+| `primary-50` | `#f2f8eb` | Soft green backgrounds, blobs |
+| `splash-background` | `#fafaf8` | Splash / auth canvas |
 
 ### Neutrals
 
 | Token | Hex | Use |
 |-------|-----|-----|
-| `neutral-black` | `#000000` | Primary text |
-| `neutral-white` | `#ffffff` | Cards, hero text |
+| `neutral-black` | `#111827` / `#1f2937` | Primary text |
+| `neutral-white` | `#ffffff` | Cards, auth canvas |
 | `gray-50` | `#f9fafb` | Subtle surfaces |
-| `gray-100` | `#f3f4f6` | **Page background** |
+| `gray-100` | `#f3f4f6` / `#f5f6f8` | **App page background** |
 | `gray-200` | `#e5e7eb` | Borders, dividers |
 | `gray-300` | `#d1d5db` | Disabled / muted borders |
 | `gray-400` | `#9ca3af` | Placeholder text |
@@ -47,9 +51,9 @@ Canonical visual language for the Hospital Tele-Consulting Platform. Apply acros
 
 | Role | Font | Fallback |
 |------|------|----------|
-| Display / H1 | **Stack Sans Headline** | system sans-serif |
-| Headings H2–H5, body, labels | **Manrope** | Inter, system sans-serif |
-| Utility (sparingly) | Geist, Geist Mono, Inter | — |
+| Display / H1 | **Stack Sans Headline** | Manrope / system sans-serif |
+| Headings H2–H5, body, labels | **Manrope** | system sans-serif |
+| Utility (sparingly) | Geist, Geist Mono | — |
 
 ### Scale
 
@@ -65,18 +69,29 @@ Canonical visual language for the Hospital Tele-Consulting Platform. Apply acros
 
 ---
 
+## Brand
+
+| Element | Value |
+|---------|-------|
+| Name | TeleConsult |
+| Tagline | Expert Care. Anywhere. Anytime. |
+| Logo | Green circle + medical cross with leaf accent |
+| Footer line | Connecting Care, Building Healthier Tomorrows |
+
+---
+
 ## Layout
 
 | Element | Value |
 |---------|-------|
-| Page background | `#f3f4f6` (gray-100) |
+| Auth / splash background | White + soft green blobs + dot grids |
+| App page background | `#f5f6f8` |
 | Card background | `#ffffff` |
-| Card border-radius | `20px` |
+| Card border-radius | `20–24px` |
 | Card shadow | Soft, subtle elevation |
-| Input / chip radius | `10–12px` |
-| Button radius | `10–20px` |
-| Section padding | `48–80px` |
-| Max content width | `~1700px` |
+| Input / chip radius | `12–14px` |
+| Button radius | `14–16px` |
+| Bottom sheet (auth) | White card, large top radius (~28px) |
 | Whitespace | Generous — avoid cramped layouts |
 
 ---
@@ -84,45 +99,54 @@ Canonical visual language for the Hospital Tele-Consulting Platform. Apply acros
 ## Components
 
 ### Cards
-- White surface on gray-100 page background
-- 20px border-radius, soft shadow
-- Use for all content blocks — avoid flat content on page bg
+- White surface on gray page background (home)
+- Auth: bottom sheet card with rounded top corners
+- Soft shadow or light border
 
-### CTAs (e.g. "Book Online")
-- Background: `primary-900` (`#49630b`)
-- Hover: `primary-700` (`#5b7a12`)
+### CTAs
+- Background: `primary-900` (`#4c9a2a`)
 - Text: white
-- Rounded corners (10–20px), subtle hover transition
+- Often include a trailing arrow / chevron
+- Rounded corners (14–16px)
 
-### Hero sections
-- Full-bleed photo with dark gradient overlay
-- White text on overlay
-- Display typography (Stack Sans Headline)
+### Auth pattern
+1. Splash (brand + illustration)
+2. Login / Sign up (mobile number primary)
+3. OTP verification (6 boxes)
+
+### Home pattern
+- Greeting + language + avatar
+- Search
+- Book consultation hero card
+- Upcoming appointment
+- Quick access grid
+- Explore care horizontal cards
+- 5-tab bottom nav: Home, My Health, Messages, Bookings, More
 
 ### Trust elements
-- Star ratings, badges, testimonials
-- Use `primary-400` and `primary-50` tints
-- Testimonial carousel, 5.0 star trust badges
+- Soft green tinted banners with shield icons
+- Terms / privacy links in primary green
 
 ---
 
 ## Rules
 
-1. **Olive green = action** — primary buttons, active nav, booking CTAs
-2. **White cards on gray-100** — every content block sits on a card
-3. **Manrope for almost everything** — Stack Sans Headline only for display/hero
+1. **Grass green = action** — primary buttons, active nav, booking CTAs
+2. **White cards on soft gray** — content blocks sit on cards (home)
+3. **Manrope for almost everything** — Stack Sans Headline only for display/hero when available
 4. **Red sparingly** — errors and alerts only (`#a6021a`)
 5. **No default Expo blue** — do not use `#3c87f7` for primary actions
-6. **Consistent rounding** — 20px cards, 10–12px inputs/chips
+6. **Consistent rounding** — 20–24px cards, 12–14px inputs
+7. **Mockup fidelity** — match patient redesign screens before inventing alternate layouts
 
 ---
 
 ## Per-app implementation
 
 ### Patient mobile (`apps/patient-mobile`)
-- Define tokens in `src/constants/theme.ts` (replace default Expo palette)
-- Load Manrope + Stack Sans Headline via `expo-font`
-- Map `ThemedText` variants to H1–H5 / body / label scale
+- Define tokens in `src/constants/theme.ts`
+- Load Manrope via `expo-font`
+- Shared brand pieces: `BrandLogo`, decorative blobs, phone field, OTP boxes
 
 ### Doctor admin (`apps/doctor-admin`)
 - Extend Tailwind / shadcn theme with the same hex tokens

@@ -1,11 +1,14 @@
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { SymbolView } from 'expo-symbols';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Colors, Radius } from '@/constants/theme';
 
 export type AppIconName =
   | 'person'
   | 'calendar'
+  | 'clock'
   | 'star'
   | 'stethoscope'
   | 'hearing'
@@ -14,6 +17,8 @@ export type AppIconName =
   | 'notes'
   | 'hospital'
   | 'chevron'
+  | 'chevronDown'
+  | 'chevronLeft'
   | 'logout'
   | 'health'
   | 'ear'
@@ -21,33 +26,64 @@ export type AppIconName =
   | 'throat'
   | 'specialty'
   | 'pediatric'
-  | 'book';
+  | 'book'
+  | 'home'
+  | 'homeOutline'
+  | 'messages'
+  | 'more'
+  | 'search'
+  | 'shield'
+  | 'lock'
+  | 'support'
+  | 'globe'
+  | 'check'
+  | 'heart'
+  | 'insurance'
+  | 'mail'
+  | 'pin';
 
-type PlatformSymbol = {
+type IconDef = {
   ios: string;
-  android: string;
-  web: string;
+  material?: keyof typeof MaterialIcons.glyphMap;
+  community?: keyof typeof MaterialCommunityIcons.glyphMap;
 };
 
-const SYMBOLS: Record<AppIconName, PlatformSymbol> = {
-  person: { ios: 'person.fill', android: 'person', web: 'person' },
-  calendar: { ios: 'calendar', android: 'calendar_month', web: 'calendar_month' },
-  star: { ios: 'star.fill', android: 'star', web: 'star' },
-  stethoscope: { ios: 'stethoscope', android: 'stethoscope', web: 'stethoscope' },
-  hearing: { ios: 'ear', android: 'hearing', web: 'hearing' },
-  medication: { ios: 'pills.fill', android: 'medication', web: 'medication' },
-  lab: { ios: 'flask.fill', android: 'lab_profile', web: 'lab_profile' },
-  notes: { ios: 'doc.text.fill', android: 'clinical_notes', web: 'clinical_notes' },
-  hospital: { ios: 'cross.case.fill', android: 'local_hospital', web: 'local_hospital' },
-  chevron: { ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' },
-  logout: { ios: 'rectangle.portrait.and.arrow.right', android: 'logout', web: 'logout' },
-  health: { ios: 'heart.fill', android: 'health_and_safety', web: 'health_and_safety' },
-  ear: { ios: 'ear.fill', android: 'hearing', web: 'hearing' },
-  nose: { ios: 'wind', android: 'air', web: 'air' },
-  throat: { ios: 'mic.fill', android: 'record_voice_over', web: 'record_voice_over' },
-  specialty: { ios: 'cross.vial.fill', android: 'vaccines', web: 'vaccines' },
-  pediatric: { ios: 'figure.and.child.holdinghands', android: 'child_care', web: 'child_care' },
-  book: { ios: 'calendar.badge.plus', android: 'event_available', web: 'event_available' },
+const ICONS: Record<AppIconName, IconDef> = {
+  person: { ios: 'person', material: 'person-outline' },
+  calendar: { ios: 'calendar.badge.checkmark', material: 'event-available' },
+  clock: { ios: 'clock', material: 'schedule' },
+  star: { ios: 'star.fill', material: 'star' },
+  stethoscope: { ios: 'stethoscope', community: 'stethoscope' },
+  hearing: { ios: 'ear', material: 'hearing' },
+  medication: { ios: 'pills', material: 'medication' },
+  lab: { ios: 'flask', material: 'science' },
+  notes: { ios: 'doc.text', material: 'description' },
+  hospital: { ios: 'cross.case.fill', material: 'local-hospital' },
+  chevron: { ios: 'chevron.right', material: 'chevron-right' },
+  chevronDown: { ios: 'chevron.down', material: 'keyboard-arrow-down' },
+  chevronLeft: { ios: 'chevron.left', material: 'chevron-left' },
+  logout: { ios: 'rectangle.portrait.and.arrow.right', material: 'logout' },
+  health: { ios: 'heart.fill', material: 'favorite' },
+  ear: { ios: 'ear', material: 'hearing' },
+  nose: { ios: 'wind', community: 'weather-windy' },
+  throat: { ios: 'mic.fill', material: 'record-voice-over' },
+  specialty: { ios: 'cross.vial.fill', community: 'needle' },
+  pediatric: { ios: 'figure.and.child.holdinghands', material: 'child-care' },
+  book: { ios: 'calendar.badge.plus', material: 'event-available' },
+  home: { ios: 'house.fill', material: 'home' },
+  homeOutline: { ios: 'house', community: 'home-outline' },
+  messages: { ios: 'ellipsis.bubble', community: 'dots-horizontal-circle-outline' },
+  more: { ios: 'ellipsis', material: 'more-horiz' },
+  search: { ios: 'magnifyingglass', material: 'search' },
+  shield: { ios: 'checkmark.shield.fill', material: 'verified-user' },
+  lock: { ios: 'lock.fill', material: 'lock' },
+  support: { ios: 'headphones', material: 'headset-mic' },
+  globe: { ios: 'globe', material: 'language' },
+  check: { ios: 'checkmark', material: 'check' },
+  heart: { ios: 'heart.fill', material: 'favorite' },
+  insurance: { ios: 'shield.fill', material: 'health-and-safety' },
+  mail: { ios: 'envelope.fill', material: 'mail' },
+  pin: { ios: 'mappin.and.ellipse', material: 'location-on' },
 };
 
 type Props = {
@@ -57,14 +93,31 @@ type Props = {
   style?: StyleProp<ViewStyle>;
 };
 
+function MaterialFallback({ name, size, color, style }: Required<Pick<Props, 'name' | 'size' | 'color'>> & Pick<Props, 'style'>) {
+  const def = ICONS[name];
+
+  if (def.community) {
+    return <MaterialCommunityIcons name={def.community} size={size} color={color} style={style as never} />;
+  }
+
+  return <MaterialIcons name={def.material ?? 'help-outline'} size={size} color={color} style={style as never} />;
+}
+
 export function Icon({ name, size = 22, color = Colors.primary900, style }: Props) {
+  const fallback = <MaterialFallback name={name} size={size} color={color} style={style} />;
+
+  if (Platform.OS !== 'ios') {
+    return fallback;
+  }
+
   return (
     <SymbolView
-      // expo-symbols accepts platform maps; cast keeps our curated name list tidy
-      name={SYMBOLS[name] as never}
+      name={ICONS[name].ios as never}
       size={size}
       tintColor={color}
       style={style}
+      weight="regular"
+      fallback={fallback}
     />
   );
 }

@@ -70,15 +70,15 @@ const styles = StyleSheet.create({
     top: -80,
     right: -60,
     backgroundColor: Colors.primary50,
-    opacity: 0.9,
+    opacity: 0.95,
   },
   blobSide: {
     width: 220,
     height: 220,
     bottom: 80,
     left: -90,
-    backgroundColor: Colors.primary400,
-    opacity: 0.12,
+    backgroundColor: Colors.primary100,
+    opacity: 0.55,
   },
   scrollContent: {
     flexGrow: 1,

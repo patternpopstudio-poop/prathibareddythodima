@@ -1,3 +1,4 @@
+import { needsBasicDetails } from '@teleconsult/shared-types';
 import { Redirect } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
@@ -7,8 +8,6 @@ import { useAuth } from '@/contexts/auth-context';
 export default function Index() {
   const { session, patient, isLoading } = useAuth();
 
-  // Wait until session AND patient profile are resolved. Otherwise a brief
-  // null patient after login is mistaken for "profile incomplete".
   if (isLoading) {
     return (
       <View style={styles.boot}>
@@ -21,10 +20,11 @@ export default function Index() {
     return <Redirect href="/(auth)/welcome" />;
   }
 
-  if (!patient?.profileCompleted) {
-    return <Redirect href="/(onboarding)/profile" />;
+  if (needsBasicDetails(patient)) {
+    return <Redirect href="/(onboarding)/basic-details" />;
   }
 
+  // Health profile remains optional and is nudged from home / profile.
   return <Redirect href="/(app)/home" />;
 }
 

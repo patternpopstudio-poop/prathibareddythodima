@@ -19,18 +19,35 @@ import { getProfileSections } from '@/lib/patient-display';
 export default function ProfileScreen() {
   const { patient, signOut } = useAuth();
   const sections = getProfileSections(patient);
+  const needsHealthProfile = Boolean(patient && !patient.profileCompleted);
+
+  function openHealthProfile() {
+    router.push({
+      pathname: '/(onboarding)/profile',
+      params: { mode: needsHealthProfile ? 'complete' : 'edit' },
+    });
+  }
 
   return (
     <Screen>
-      <ScreenNav title="Profile" />
+      <ScreenNav title="My Health" />
 
       <Card style={styles.heroCard}>
         <InitialsAvatarStatic name={patient?.fullName} />
         <View style={styles.heroCopy}>
           <AppText variant="h3">{patient?.fullName ?? 'Your profile'}</AppText>
-          <AppText variant="muted">Registration and health details</AppText>
+          <AppText variant="muted">
+            {needsHealthProfile
+              ? 'Add height and weight when you have a moment'
+              : 'Registration and health details'}
+          </AppText>
         </View>
       </Card>
+
+      <Button
+        title={needsHealthProfile ? 'Complete health profile' : 'Edit health profile'}
+        onPress={openHealthProfile}
+      />
 
       {sections.map((section) => (
         <Card key={section.id} style={styles.card}>

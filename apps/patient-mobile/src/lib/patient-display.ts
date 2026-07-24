@@ -78,6 +78,7 @@ export function getRegistrationFields(patient: Patient | null): ProfileField[] {
     { label: 'Gender', value: formatGender(patient.gender) },
     { label: 'Email', value: displayOrDash(patient.email) },
     { label: 'Mobile', value: displayOrDash(patient.mobile) },
+    { label: 'City', value: displayOrDash(patient.city) },
   ];
 }
 

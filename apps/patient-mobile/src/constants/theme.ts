@@ -1,15 +1,17 @@
 /**
  * Design tokens — docs/DESIGN_SYSTEM.md
- * Colors are canonical; radius/shadow/spacing refined for a calmer modern feel.
+ * Fresh grass-green palette aligned with TeleConsult redesign mockups.
  */
 
 export const Colors = {
-  primary900: '#49630b',
-  primary700: '#5b7a12',
-  primary600: '#68852a',
-  primary400: '#8fb837',
-  primary50: '#f0f5e4',
-  black: '#000000',
+  /** Matches splash / TeleConsult mockup green (~#6BAE3D) */
+  primary900: '#6bae3d',
+  primary700: '#5c9a32',
+  primary600: '#7bbc52',
+  primary400: '#9fd07a',
+  primary100: '#e5f3d8',
+  primary50: '#f2f8eb',
+  black: '#111827',
   white: '#ffffff',
   gray50: '#f9fafb',
   gray100: '#f3f4f6',
@@ -20,11 +22,13 @@ export const Colors = {
   gray600: '#4b5363',
   gray500Alt: '#838996',
   accentRed: '#a6021a',
-  /** Page canvas */
-  background: '#f3f4f6',
+  /** Splash / auth canvas from mockup */
+  splashBackground: '#fafaf8',
+  /** Page canvas — soft gray for app shell; auth screens may use white */
+  background: '#f5f6f8',
   /** Card / input surface */
   surface: '#ffffff',
-  text: '#000000',
+  text: '#1f2937',
   textSecondary: '#6b7280',
   border: '#e5e7eb',
   placeholder: '#9ca3af',
@@ -65,10 +69,16 @@ export const Shadow = {
     elevation: 3,
   },
   soft: {
-    shadowColor: '#49630b',
+    shadowColor: '#4c9a2a',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.1,
     shadowRadius: 16,
     elevation: 2,
   },
+} as const;
+
+export const Brand = {
+  name: 'TeleConsult',
+  tagline: 'Expert Care. Anywhere. Anytime.',
+  footerTagline: 'Connecting Care, Building Healthier Tomorrows',
 } as const;
