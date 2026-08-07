@@ -28,17 +28,24 @@ export async function fetchDoctorById(doctorId: string): Promise<Doctor | null> 
   return mapDoctorRow(data as DoctorRow);
 }
 
+/** How far ahead patients can load open slots (matches slot-picker browse window). */
+const OPEN_SLOTS_HORIZON_MONTHS = 6;
+
 /** Future open slots for a doctor (patient-visible via RLS). */
 export async function fetchOpenSlotsForDoctor(
   doctorId: string,
-  limit = 60
+  limit = 500
 ): Promise<AppointmentSlot[]> {
+  const until = new Date();
+  until.setMonth(until.getMonth() + OPEN_SLOTS_HORIZON_MONTHS);
+
   const { data, error } = await supabase
     .from('appointment_slots')
     .select('*')
     .eq('doctor_id', doctorId)
     .eq('status', 'open')
     .gt('starts_at', new Date().toISOString())
+    .lte('starts_at', until.toISOString())
     .order('starts_at', { ascending: true })
     .limit(limit);
 

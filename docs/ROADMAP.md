@@ -101,9 +101,12 @@ Phased plan for the Hospital Tele-Consulting Platform monorepo.
 |---------|---------|----------------|---------|
 | B2C payment at booking | ✓ | — | Payment gateway (Node.js) |
 | B2B employer billing / coverage check | ✓ flow | admin review | Billing logic |
-| Refund on failed reschedule | — | — | Refund rules |
+| Refund on free cancel / hold-expired | ✓ | — | `refunds` ledger + Razorpay |
+| Refund on failed reschedule | — | — | Deferred → Phase 7 (`reschedule_failed`) |
 
 **Exit criteria:** B2C booking requires successful payment; B2B bookings flagged for employer billing.
+
+> **Phase 4 Slice 6 note:** The `refunds` table includes reason `reschedule_failed` for money hygiene, but **do not invent reschedule UI or refund wiring here**. Wire that reason when Phase 7 ships doctor-propose → patient-confirm reschedule.
 
 ---
 
@@ -155,7 +158,7 @@ Phased plan for the Hospital Tele-Consulting Platform monorepo.
 | Rating (1–5 + optional comment, one per consultation, non-editable) | ✓ | — | — |
 | Ratings visible to admin only | — | admin view | — |
 | Notification preferences (booking reminders, messages) | ✓ | ✓ | — |
-| Reschedule (doctor proposes → patient confirms) | ✓ confirm | ✓ propose | Slot + refund logic |
+| Reschedule (doctor proposes → patient confirms) | ✓ confirm | ✓ propose | Slot + refund logic (`refunds.reason = reschedule_failed` from Phase 4 Slice 6) |
 | Admin-initiated cancellation | — | admin | Admin API |
 
 **Exit criteria:** Closed case is read-only; patient can rate; history retained.

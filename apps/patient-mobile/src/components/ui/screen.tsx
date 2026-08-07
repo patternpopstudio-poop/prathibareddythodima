@@ -14,19 +14,30 @@ type Props = ViewProps & {
   scroll?: boolean;
   /** Soft olive wash behind content — keeps palette, adds depth */
   ambient?: boolean;
+  /** Horizontal + vertical content padding (default true). */
+  padded?: boolean;
 };
 
-export function Screen({ children, style, scroll = true, ambient = true, ...rest }: Props) {
+export function Screen({
+  children,
+  style,
+  scroll = true,
+  ambient = true,
+  padded = true,
+  ...rest
+}: Props) {
+  const contentStyle = [styles.scrollContent, !padded && styles.scrollContentFlush];
+
   const content = scroll ? (
     <ScrollView
-      contentContainerStyle={styles.scrollContent}
+      contentContainerStyle={contentStyle}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
       bounces>
       {children}
     </ScrollView>
   ) : (
-    <View style={styles.scrollContent}>{children}</View>
+    <View style={[styles.flex, ...contentStyle]}>{children}</View>
   );
 
   return (
@@ -86,5 +97,11 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.lg,
     paddingBottom: Spacing.xxl,
     gap: Spacing.lg,
+  },
+  scrollContentFlush: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    gap: 0,
   },
 });

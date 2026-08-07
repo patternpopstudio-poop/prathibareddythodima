@@ -1,6 +1,6 @@
 'use client';
 
-import type { Doctor } from '@teleconsult/shared-types';
+import { formatInrFromPaise, type Doctor } from '@teleconsult/shared-types';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -153,6 +153,19 @@ export function DoctorProfileForm({ doctor }: Props) {
           placeholder="+91…"
           className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm outline-none focus:border-primary"
         />
+      </div>
+
+      <div className="space-y-2">
+        <label htmlFor="consultationFee" className="text-sm font-semibold">
+          Consultation fee
+        </label>
+        <input
+          id="consultationFee"
+          value={formatInrFromPaise(doctor.consultationFeePaise)}
+          disabled
+          className="w-full rounded-2xl border border-border bg-background/60 px-4 py-3 text-sm text-muted"
+        />
+        <p className="text-xs text-muted">Fee is set by admin (₹400–₹700) and cannot be changed here.</p>
       </div>
 
       {error ? <p className="text-sm font-medium text-danger">{error}</p> : null}

@@ -75,18 +75,33 @@ export async function fetchDoctorUpcomingBookings(
   return mapped.slice(0, limit);
 }
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
+function formatTime12h(date: Date): string {
+  const hours24 = date.getHours();
+  const mins = date.getMinutes();
+  const period = hours24 >= 12 ? 'PM' : 'AM';
+  const hours12 = hours24 % 12 || 12;
+  return `${hours12}:${String(mins).padStart(2, '0')} ${period}`;
+}
+
 export function formatBookingWhen(startsAt: string, endsAt: string): string {
   const start = new Date(startsAt);
   const end = new Date(endsAt);
-  const datePart = new Intl.DateTimeFormat(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(start);
-  const timeFmt = new Intl.DateTimeFormat(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-  return `${datePart} · ${timeFmt.format(start)} – ${timeFmt.format(end)}`;
+  const datePart = `${WEEKDAYS[start.getDay()]} ${MONTHS[start.getMonth()]} ${start.getDate()}, ${start.getFullYear()}`;
+  return `${datePart} · ${formatTime12h(start)} – ${formatTime12h(end)}`;
 }

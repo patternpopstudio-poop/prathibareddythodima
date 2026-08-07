@@ -30,15 +30,25 @@ function startOfLocalDay(date: Date): Date {
 /**
  * Expand weekly availability rules into concrete open-slot drafts.
  * Uses the browser/runtime local timezone for wall-clock times.
+ *
+ * Prefer `untilDate` (inclusive last calendar day). `days` is a fallback window length.
  */
 export function generateSlotsFromRules(
   rules: DoctorAvailability[],
-  options: { fromDate?: Date; days: number; now?: Date }
+  options: { fromDate?: Date; days?: number; untilDate?: Date; now?: Date }
 ): GeneratedSlotDraft[] {
   const now = options.now ?? new Date();
-  const days = Math.max(1, Math.min(options.days, 60));
   const startDay = startOfLocalDay(options.fromDate ?? now);
   const activeRules = rules.filter((r) => r.isActive);
+
+  let days: number;
+  if (options.untilDate) {
+    const endDay = startOfLocalDay(options.untilDate);
+    days = Math.floor((endDay.getTime() - startDay.getTime()) / 86_400_000) + 1;
+  } else {
+    days = options.days ?? 14;
+  }
+  days = Math.max(0, Math.min(days, 60));
 
   const drafts: GeneratedSlotDraft[] = [];
 
@@ -78,6 +88,21 @@ export function generateSlotsFromRules(
   return drafts;
 }
 
+/** Local calendar YYYY-MM-DD for date inputs. */
+export function toDateInputValue(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** Parse YYYY-MM-DD as a local calendar day. */
+export function parseDateInputValue(value: string): Date {
+  const [y, m, d] = value.split('-').map(Number);
+  if (!y || !m || !d) throw new Error('Invalid date.');
+  return new Date(y, m - 1, d);
+}
+
 export const DAY_OF_WEEK_LABELS = [
   'Sunday',
   'Monday',
@@ -88,29 +113,42 @@ export const DAY_OF_WEEK_LABELS = [
   'Saturday',
 ] as const;
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
+/** Deterministic 12h clock — avoids Node vs browser Intl mismatches (hydration). */
+export function formatMinutesAsTime(totalMinutes: number): string {
+  const hours24 = Math.floor(totalMinutes / 60) % 24;
+  const mins = ((totalMinutes % 60) + 60) % 60;
+  const period = hours24 >= 12 ? 'PM' : 'AM';
+  const hours12 = hours24 % 12 || 12;
+  return `${hours12}:${String(mins).padStart(2, '0')} ${period}`;
+}
+
+export function formatDateTimeAsTime(date: Date): string {
+  return formatMinutesAsTime(date.getHours() * 60 + date.getMinutes());
+}
+
 export function formatSlotRange(startsAt: string, endsAt: string): string {
   const start = new Date(startsAt);
   const end = new Date(endsAt);
-  const datePart = new Intl.DateTimeFormat(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  }).format(start);
-  const timeFmt = new Intl.DateTimeFormat(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-  return `${datePart} · ${timeFmt.format(start)} – ${timeFmt.format(end)}`;
+  const datePart = `${WEEKDAYS[start.getDay()]} ${MONTHS[start.getMonth()]} ${start.getDate()}`;
+  return `${datePart} · ${formatDateTimeAsTime(start)} – ${formatDateTimeAsTime(end)}`;
 }
 
 export function formatTimeLabel(value: string): string {
-  const minutes = parseTimeToMinutes(value);
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  const d = new Date();
-  d.setHours(hours, mins, 0, 0);
-  return new Intl.DateTimeFormat(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(d);
+  return formatMinutesAsTime(parseTimeToMinutes(value));
 }

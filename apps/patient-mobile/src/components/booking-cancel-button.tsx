@@ -16,6 +16,10 @@ type Props = {
   slotStartsAt: string;
   /** True when a late cancel request was already flagged. */
   cancelRequested?: boolean;
+  /** Paid confirmed booking — free cancel triggers a refund. */
+  willRefund?: boolean;
+  /** Unpaid hold — cancel releases the slot immediately. */
+  pendingPayment?: boolean;
   onDone?: (result: CancelBookingResult) => void;
 };
 
@@ -23,17 +27,22 @@ export function BookingCancelButton({
   bookingId,
   slotStartsAt,
   cancelRequested = false,
+  willRefund = false,
+  pendingPayment = false,
   onDone,
 }: Props) {
   const [busy, setBusy] = useState(false);
-  const onlineOk = canCancelBookingOnline(slotStartsAt);
+  const onlineOk = canCancelBookingOnline(slotStartsAt) || pendingPayment;
 
   async function runCancel() {
     setBusy(true);
     try {
       const result = await cancelAppointmentBooking(bookingId);
       if (result.outcome === 'cancelled') {
-        Alert.alert('Booking cancelled', result.message);
+        Alert.alert(
+          result.refunded ? 'Cancelled — refund started' : 'Booking cancelled',
+          result.message
+        );
       } else {
         Alert.alert('Contact the hospital', `${result.message}\n\n${CLINIC.cancelContactMessage}`);
       }
@@ -58,14 +67,15 @@ export function BookingCancelButton({
     }
 
     if (onlineOk) {
-      Alert.alert(
-        'Cancel booking?',
-        `You can cancel free of charge until ${BOOKING_CANCEL_CUTOFF_HOURS} hours before the appointment. The slot will open for others.`,
-        [
-          { text: 'Keep', style: 'cancel' },
-          { text: 'Cancel booking', style: 'destructive', onPress: () => void runCancel() },
-        ]
-      );
+      const detail = pendingPayment
+        ? 'Your unpaid hold will be released and the slot will open for others.'
+        : willRefund
+          ? `You can cancel free of charge until ${BOOKING_CANCEL_CUTOFF_HOURS} hours before the appointment. Your consultation fee will be refunded.`
+          : `You can cancel free of charge until ${BOOKING_CANCEL_CUTOFF_HOURS} hours before the appointment. The slot will open for others.`;
+      Alert.alert('Cancel booking?', detail, [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Cancel booking', style: 'destructive', onPress: () => void runCancel() },
+      ]);
       return;
     }
 

@@ -1,7 +1,11 @@
-import { BOOKING_CANCEL_CUTOFF_HOURS } from '@teleconsult/shared-types';
+import {
+    BOOKING_CANCEL_CUTOFF_HOURS,
+    BOOKING_PAYMENT_HOLD_MINUTES,
+    formatInrFromPaise,
+} from '@teleconsult/shared-types';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 
 import { BookingCancelButton } from '@/components/booking-cancel-button';
 import { AppText } from '@/components/ui/app-text';
@@ -12,10 +16,11 @@ import { Icon } from '@/components/ui/icon';
 import { Screen } from '@/components/ui/screen';
 import { Colors, Radius, Shadow, Spacing } from '@/constants/theme';
 import { fetchBookingById, type UpcomingBooking } from '@/lib/bookings';
+import { completeBookingPayment } from '@/lib/payments';
 import {
-  formatSlotDayLabel,
-  formatSlotShortDate,
-  formatSlotTimeRange,
+    formatSlotDayLabel,
+    formatSlotShortDate,
+    formatSlotTimeRange,
 } from '@/lib/slot-display';
 
 export default function BookingConfirmedScreen() {
@@ -24,6 +29,7 @@ export default function BookingConfirmedScreen() {
 
   const [item, setItem] = useState<UpcomingBooking | null>(null);
   const [loading, setLoading] = useState(true);
+  const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -37,10 +43,11 @@ export default function BookingConfirmedScreen() {
     setError(null);
     try {
       const row = await fetchBookingById(bookingId);
-      if (!row || row.booking.status !== 'confirmed') {
+      const status = row?.booking.status;
+      if (!row || (status !== 'confirmed' && status !== 'pending_payment')) {
         setItem(null);
         setError(
-          row?.booking.status === 'cancelled'
+          status === 'cancelled'
             ? 'This booking was cancelled.'
             : 'Booking not found.'
         );
@@ -57,6 +64,42 @@ export default function BookingConfirmedScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const pendingPayment = item?.booking.status === 'pending_payment';
+  const willRefund =
+    item?.booking.status === 'confirmed' && item.booking.paymentStatus === 'paid';
+  const feeLabel =
+    item?.booking.amountPaise != null
+      ? formatInrFromPaise(item.booking.amountPaise)
+      : item
+        ? formatInrFromPaise(item.doctor.consultationFeePaise)
+        : null;
+
+  const onPay = useCallback(async () => {
+    if (!bookingId || paying) return;
+    setPaying(true);
+    try {
+      const outcome = await completeBookingPayment(bookingId);
+      if (outcome.status === 'paid') {
+        await load();
+        Alert.alert('Payment successful', 'Your consultation is confirmed.');
+        return;
+      }
+      if (outcome.status === 'cancelled') {
+        Alert.alert('Payment cancelled', 'Your slot is still held. You can try again anytime.');
+        return;
+      }
+      // dismissed browser — hold remains
+    } catch (err) {
+      Alert.alert(
+        'Payment failed',
+        err instanceof Error ? err.message : 'Could not complete payment.'
+      );
+      void load();
+    } finally {
+      setPaying(false);
+    }
+  }, [bookingId, load, paying]);
 
   return (
     <Screen>
@@ -75,17 +118,27 @@ export default function BookingConfirmedScreen() {
       {item ? (
         <View style={styles.content}>
           <View style={styles.hero}>
-            <View style={styles.checkBadge}>
-              <Icon name="check" size={28} color={Colors.white} />
+            <View
+              style={[
+                styles.checkBadge,
+                pendingPayment && styles.checkBadgePending,
+              ]}>
+              <Icon
+                name={pendingPayment ? 'lock' : 'check'}
+                size={28}
+                color={Colors.white}
+              />
             </View>
             <AppText variant="eyebrow" style={styles.eyebrow}>
-              BOOKING CONFIRMED
+              {pendingPayment ? 'PAYMENT REQUIRED' : 'BOOKING CONFIRMED'}
             </AppText>
             <AppText variant="h2" style={styles.title}>
-              You're all set
+              {pendingPayment ? 'Slot reserved' : "You're all set"}
             </AppText>
             <AppText variant="muted" style={styles.subtitle}>
-              Your consultation is reserved. The doctor can see this booking on their schedule.
+              {pendingPayment
+                ? `Complete payment within ${BOOKING_PAYMENT_HOLD_MINUTES} minutes to confirm your consultation. You can cancel anytime to release the slot.`
+                : 'Your consultation is reserved. The doctor can see this booking on their schedule.'}
             </AppText>
           </View>
 
@@ -100,9 +153,18 @@ export default function BookingConfirmedScreen() {
                 <AppText variant="h3" style={styles.doctorName}>
                   {item.doctor.fullName || 'Doctor'}
                 </AppText>
-                <View style={styles.confirmedPill}>
-                  <AppText variant="label" style={styles.confirmedText}>
-                    Confirmed
+                <View
+                  style={[
+                    styles.confirmedPill,
+                    pendingPayment && styles.pendingPill,
+                  ]}>
+                  <AppText
+                    variant="label"
+                    style={[
+                      styles.confirmedText,
+                      pendingPayment && styles.pendingText,
+                    ]}>
+                    {pendingPayment ? 'Awaiting payment' : 'Confirmed'}
                   </AppText>
                 </View>
               </View>
@@ -131,17 +193,47 @@ export default function BookingConfirmedScreen() {
                   </AppText>
                 </View>
               </View>
+              {feeLabel ? (
+                <View style={styles.metaRow}>
+                  <Icon name="lock" size={18} color={Colors.primary900} />
+                  <View style={styles.metaText}>
+                    <AppText variant="muted" style={styles.metaLabel}>
+                      Amount
+                    </AppText>
+                    <AppText variant="bodyMedium">{feeLabel}</AppText>
+                  </View>
+                </View>
+              ) : null}
             </View>
 
-            <AppText variant="muted" style={styles.footnote}>
-              Free online cancel until {BOOKING_CANCEL_CUTOFF_HOURS} hours before{' '}
-              {formatSlotShortDate(item.slot.startsAt)}. After that, contact the hospital.
-            </AppText>
+            {pendingPayment ? (
+              <AppText variant="muted" style={styles.footnote}>
+                Cancel anytime before paying to free the slot. Holds expire after{' '}
+                {BOOKING_PAYMENT_HOLD_MINUTES} minutes if unpaid.
+              </AppText>
+            ) : (
+              <AppText variant="muted" style={styles.footnote}>
+                Free online cancel (with refund) until {BOOKING_CANCEL_CUTOFF_HOURS} hours before{' '}
+                {formatSlotShortDate(item.slot.startsAt)}. After that, contact the hospital — no
+                automatic refund.
+              </AppText>
+            )}
+
+            {pendingPayment ? (
+              <Button
+                title={feeLabel ? `Pay ${feeLabel}` : 'Complete payment'}
+                showArrow
+                loading={paying}
+                onPress={() => void onPay()}
+              />
+            ) : null}
 
             <BookingCancelButton
               bookingId={item.booking.id}
               slotStartsAt={item.slot.startsAt}
               cancelRequested={Boolean(item.booking.cancelRequestAt)}
+              willRefund={willRefund}
+              pendingPayment={pendingPayment}
               onDone={(result) => {
                 if (result.outcome === 'cancelled') {
                   router.replace('/(app)/book');
@@ -190,6 +282,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: Spacing.sm,
   },
+  checkBadgePending: {
+    backgroundColor: Colors.primary700,
+  },
   eyebrow: {
     color: Colors.primary900,
   },
@@ -229,9 +324,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm + 2,
     paddingVertical: 4,
   },
+  pendingPill: {
+    backgroundColor: Colors.primary50,
+  },
   confirmedText: {
     color: Colors.primary700,
     fontSize: 11,
+  },
+  pendingText: {
+    color: Colors.primary900,
   },
   metaBlock: {
     gap: Spacing.md,

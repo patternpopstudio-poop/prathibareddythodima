@@ -5,13 +5,28 @@ import { RefreshButton } from '@/components/refresh-button';
 import { requireStaff } from '@/lib/auth';
 import { fetchDoctorUpcomingBookings, formatBookingWhen } from '@/lib/bookings';
 
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
 function formatBookedAt(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(iso));
+  const d = new Date(iso);
+  const hours24 = d.getHours();
+  const period = hours24 >= 12 ? 'PM' : 'AM';
+  const hours12 = hours24 % 12 || 12;
+  const mins = String(d.getMinutes()).padStart(2, '0');
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${hours12}:${mins} ${period}`;
 }
 
 export default async function BookingsPage() {

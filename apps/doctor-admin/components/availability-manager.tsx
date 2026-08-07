@@ -5,12 +5,14 @@ import { mapAppointmentSlotRow, mapDoctorAvailabilityRow } from '@teleconsult/sh
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 
+import { SlotsCalendar } from '@/components/slots-calendar';
 import {
   DAY_OF_WEEK_LABELS,
-  formatSlotRange,
   formatTimeLabel,
   generateSlotsFromRules,
+  parseDateInputValue,
   parseTimeToMinutes,
+  toDateInputValue,
 } from '@/lib/generate-slots';
 import { createClient } from '@/lib/supabase/client';
 
@@ -25,6 +27,12 @@ const DAY_OPTIONS = DAY_OF_WEEK_LABELS.map((label, value) => ({
   value: value as DayOfWeek,
 }));
 
+function defaultGenerateUntil(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 14);
+  return toDateInputValue(d);
+}
+
 export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Props) {
   const router = useRouter();
   const [rules, setRules] = useState(initialRules);
@@ -38,7 +46,7 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
   const [endTime, setEndTime] = useState('13:00');
   const [duration, setDuration] = useState(15);
   const [buffer, setBuffer] = useState(0);
-  const [generateDays, setGenerateDays] = useState(14);
+  const [generateUntil, setGenerateUntil] = useState(defaultGenerateUntil);
 
   const [manualDate, setManualDate] = useState('');
   const [manualStart, setManualStart] = useState('10:00');
@@ -74,7 +82,7 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
           .eq('status', 'open')
           .gt('starts_at', new Date().toISOString())
           .order('starts_at', { ascending: true })
-          .limit(100),
+          .limit(500),
       ]);
 
     if (ruleError) throw ruleError;
@@ -146,9 +154,18 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
         throw new Error('Add at least one weekly hours rule before generating slots.');
       }
 
-      const drafts = generateSlotsFromRules(rules, { days: generateDays });
+      const untilDate = parseDateInputValue(generateUntil);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (untilDate < today) {
+        throw new Error('Generate-through date must be today or later.');
+      }
+
+      const drafts = generateSlotsFromRules(rules, { untilDate });
       if (drafts.length === 0) {
-        throw new Error('No future slots fall in that window. Check your weekly hours.');
+        throw new Error(
+          'No future slots fall on or before that date. Check your weekly hours.'
+        );
       }
 
       const supabase = createClient();
@@ -372,21 +389,21 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
         <div>
           <h2 className="text-xl font-semibold tracking-tight">Generate open slots</h2>
           <p className="mt-1 text-sm text-muted">
-            Creates bookable slots from your weekly hours. Existing times are skipped.
+            Creates bookable slots from your weekly hours through the date you pick (inclusive).
+            Existing times are skipped.
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="flex flex-col gap-1.5 text-sm font-semibold">
-            Days ahead
-            <select
-              value={generateDays}
-              onChange={(e) => setGenerateDays(Number(e.target.value))}
+            Generate through
+            <input
+              type="date"
+              required
+              value={generateUntil}
+              min={toDateInputValue(new Date())}
+              onChange={(e) => setGenerateUntil(e.target.value)}
               className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
-            >
-              <option value={7}>7 days</option>
-              <option value={14}>14 days</option>
-              <option value={28}>28 days</option>
-            </select>
+            />
           </label>
           <button
             type="button"
@@ -453,31 +470,15 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
         <div>
           <h2 className="text-xl font-semibold tracking-tight">Upcoming open slots</h2>
           <p className="mt-1 text-sm text-muted">
-            Patients will book from these. Booked slots disappear from this list.
+            Patients will book from these. Browse by date and time of day — remove any open slot
+            you no longer want offered.
           </p>
         </div>
-        {slots.length === 0 ? (
-          <p className="text-sm text-muted">No open slots yet. Generate from weekly hours above.</p>
-        ) : (
-          <ul className="divide-y divide-border rounded-2xl border border-border">
-            {slots.map((slot) => (
-              <li
-                key={slot.id}
-                className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <p className="text-sm font-medium">{formatSlotRange(slot.startsAt, slot.endsAt)}</p>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void onDeleteSlot(slot.id)}
-                  className="text-sm font-semibold text-danger hover:underline disabled:opacity-60"
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <SlotsCalendar
+          slots={slots}
+          busy={busy}
+          onDeleteSlot={(slotId) => void onDeleteSlot(slotId)}
+        />
       </section>
     </div>
   );

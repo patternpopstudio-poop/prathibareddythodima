@@ -1,4 +1,4 @@
-import type { Doctor } from '@teleconsult/shared-types';
+import { formatInrFromPaise, type Doctor } from '@teleconsult/shared-types';
 import { useFocusEffect } from '@react-navigation/native';
 import { router, type Href } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -53,7 +53,7 @@ export default function BookScreen() {
       <PageHeader
         eyebrow="FIND A DOCTOR"
         title="Book a consultation"
-        description="Choose a doctor, pick an open time, and confirm. Free cancel until 2 hours before the appointment."
+        description="Choose a doctor, pick a time, and reserve. Pay within 15 minutes to confirm — free cancel until 2 hours before the appointment."
       />
 
       {loading ? (
@@ -103,11 +103,24 @@ export default function BookScreen() {
                     <AppText variant="muted" style={styles.requestNote}>
                       Cancel request sent — contact hospital
                     </AppText>
+                  ) : item.booking.status === 'pending_payment' ? (
+                    <AppText variant="muted" style={styles.pendingNote}>
+                      Awaiting payment
+                    </AppText>
                   ) : null}
                 </View>
-                <View style={styles.pill}>
-                  <AppText variant="label" style={styles.pillText}>
-                    Confirmed
+                <View
+                  style={[
+                    styles.pill,
+                    item.booking.status === 'pending_payment' && styles.pillPending,
+                  ]}>
+                  <AppText
+                    variant="label"
+                    style={[
+                      styles.pillText,
+                      item.booking.status === 'pending_payment' && styles.pillPendingText,
+                    ]}>
+                    {item.booking.status === 'pending_payment' ? 'Unpaid' : 'Confirmed'}
                   </AppText>
                 </View>
               </Pressable>
@@ -116,6 +129,11 @@ export default function BookScreen() {
                   bookingId={item.booking.id}
                   slotStartsAt={item.slot.startsAt}
                   cancelRequested={Boolean(item.booking.cancelRequestAt)}
+                  pendingPayment={item.booking.status === 'pending_payment'}
+                  willRefund={
+                    item.booking.status === 'confirmed' &&
+                    item.booking.paymentStatus === 'paid'
+                  }
                   onDone={() => void load('refresh')}
                 />
               </View>
@@ -158,7 +176,7 @@ export default function BookScreen() {
                     {doctor.fullName || 'Doctor'}
                   </AppText>
                   <AppText variant="muted" style={styles.meta}>
-                    View open slots
+                    {formatInrFromPaise(doctor.consultationFeePaise)} · View open slots
                   </AppText>
                 </View>
                 <Icon name="chevron" size={20} color={Colors.gray400} />
@@ -226,6 +244,11 @@ const styles = StyleSheet.create({
     color: Colors.accentRed,
     marginTop: 2,
   },
+  pendingNote: {
+    fontSize: 12,
+    color: Colors.primary700,
+    marginTop: 2,
+  },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -253,9 +276,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm + 2,
     paddingVertical: 4,
   },
+  pillPending: {
+    backgroundColor: Colors.primary100,
+  },
   pillText: {
     color: Colors.primary700,
     fontSize: 11,
+  },
+  pillPendingText: {
+    color: Colors.primary900,
   },
   pressed: {
     opacity: 0.9,

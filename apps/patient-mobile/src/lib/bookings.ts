@@ -27,6 +27,10 @@ type BookingJoinRow = BookingRow & {
   doctors: DoctorRow | DoctorRow[] | null;
 };
 
+const backendUrl = (
+  process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://localhost:4000'
+).replace(/\/$/, '');
+
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -43,7 +47,7 @@ export async function bookAppointmentSlot(slotId: string): Promise<Booking> {
   return mapBookingRow(data as BookingRow);
 }
 
-/** Confirmed future bookings for the current patient (soonest first). */
+/** Active future bookings (confirmed or unpaid hold) for the current patient. */
 export async function fetchUpcomingBookings(limit = 20): Promise<UpcomingBooking[]> {
   const { data, error } = await supabase
     .from('bookings')
@@ -54,7 +58,7 @@ export async function fetchUpcomingBookings(limit = 20): Promise<UpcomingBooking
       doctors (*)
     `
     )
-    .eq('status', 'confirmed')
+    .in('status', ['confirmed', 'pending_payment'])
     .order('created_at', { ascending: false })
     .limit(80);
 
@@ -121,18 +125,43 @@ export async function fetchBookingById(bookingId: string): Promise<UpcomingBooki
 
 /**
  * Cancel (before cutoff) or flag for hospital (after cutoff).
- * Enforced in Postgres — clients cannot bypass via direct UPDATE.
+ * Paid free-cancels go through the backend so Razorpay refunds can run.
  */
 export async function cancelAppointmentBooking(
   bookingId: string,
   reason?: string
 ): Promise<CancelBookingResult> {
-  const { data, error } = await supabase.rpc('cancel_appointment_booking', {
-    p_booking_id: bookingId,
-    p_reason: reason ?? null,
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) throw new Error('Not signed in.');
+
+  const res = await fetch(`${backendUrl}/payments/cancel-booking`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ bookingId, reason: reason ?? null }),
   });
 
-  if (error) throw error;
-  if (!data) throw new Error('Cancel failed.');
-  return mapCancelBookingResult(data as Parameters<typeof mapCancelBookingResult>[0]);
+  if (!res.ok) {
+    let message = `Cancel failed (${res.status}).`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) message = body.error;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(message);
+  }
+
+  const payload = (await res.json()) as {
+    outcome: string;
+    cutoffHours: number;
+    message: string;
+    booking: BookingRow;
+    refunded?: boolean;
+  };
+
+  return mapCancelBookingResult(payload);
 }

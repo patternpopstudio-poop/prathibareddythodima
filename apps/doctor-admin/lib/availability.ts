@@ -28,7 +28,7 @@ export async function fetchDoctorAvailability(
 export async function fetchUpcomingOpenSlots(
   supabase: Supabase,
   doctorId: string,
-  limit = 100
+  limit = 500
 ): Promise<AppointmentSlot[]> {
   const { data, error } = await supabase
     .from('appointment_slots')

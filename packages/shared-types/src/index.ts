@@ -49,6 +49,31 @@ export interface Patient extends BaseEntity {
   bloodGroup: BloodGroup | null;
 }
 
+/**
+ * Consultation fee bounds in INR paise (₹400–₹700).
+ * Must stay in sync with `doctors_consultation_fee_paise_range` in Postgres.
+ */
+export const CONSULTATION_FEE_MIN_PAISE = 40_000;
+export const CONSULTATION_FEE_MAX_PAISE = 70_000;
+/** Default fee for new doctors (₹500). */
+export const CONSULTATION_FEE_DEFAULT_PAISE = 50_000;
+export const BOOKING_CURRENCY = 'INR' as const;
+
+/** Format INR paise as a display string (e.g. 50000 → "₹500"). */
+export function formatInrFromPaise(paise: number): string {
+  const rupees = Math.round(paise) / 100;
+  return `₹${rupees.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+}
+
+/** True when fee is within the allowed ₹400–₹700 band. */
+export function isValidConsultationFeePaise(paise: number): boolean {
+  return (
+    Number.isInteger(paise) &&
+    paise >= CONSULTATION_FEE_MIN_PAISE &&
+    paise <= CONSULTATION_FEE_MAX_PAISE
+  );
+}
+
 /** Doctor profile (admin-managed; photo expected in Phase 2 soft gate). */
 export interface Doctor extends BaseEntity {
   fullName: string;
@@ -56,9 +81,11 @@ export interface Doctor extends BaseEntity {
   mobile: string | null;
   photoUrl: string | null;
   isActive: boolean;
+  /** Consultation fee in INR paise (₹400–₹700). Admin-managed. */
+  consultationFeePaise: number;
 }
 
-/** Doctor self-service profile update (Phase 2). */
+/** Doctor self-service profile update (Phase 2). Fee is admin-only. */
 export interface DoctorProfileInput {
   fullName: string;
   mobile?: string | null;
@@ -122,6 +149,11 @@ export interface InviteUserInput {
   role: 'doctor' | 'admin';
   fullName: string;
   mobile?: string;
+  /**
+   * Doctor only: consultation fee in INR paise (₹400–₹700).
+   * Defaults to {@link CONSULTATION_FEE_DEFAULT_PAISE} when omitted.
+   */
+  consultationFeePaise?: number;
   /** Absolute URL where the invitee lands after accepting the setup link. */
   redirectTo?: string;
 }
@@ -139,7 +171,36 @@ export type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export type SlotStatus = 'open' | 'booked' | 'blocked' | 'cancelled';
 
-export type BookingStatus = 'confirmed' | 'cancelled';
+export type BookingStatus = 'confirmed' | 'pending_payment' | 'cancelled';
+
+/** How a booking is billed (set when booking is created in Phase 4 Slice 2+). */
+export type BillingChannel = 'b2c_prepaid' | 'b2b_employer';
+
+/** Payment lifecycle on a booking. */
+export type BookingPaymentStatus =
+  | 'unpaid'
+  | 'pending'
+  | 'paid'
+  | 'failed'
+  | 'refunded'
+  | 'not_required';
+
+/** Status of a `payments` row (Razorpay attempt). */
+export type PaymentRecordStatus = 'created' | 'pending' | 'paid' | 'failed' | 'refunded';
+
+export type PaymentGateway = 'razorpay';
+
+/** Status of a `refunds` ledger row (Phase 4 Slice 6). */
+export type RefundStatus = 'pending' | 'succeeded' | 'failed';
+
+/**
+ * Why a refund exists.
+ * `reschedule_failed` is reserved for Phase 7 — not wired in Phase 4.
+ */
+export type RefundReason =
+  | 'patient_free_cancel'
+  | 'hold_expired_after_pay'
+  | 'reschedule_failed';
 
 /** Weekly working-hour rule used to generate concrete slots. */
 export interface DoctorAvailability extends BaseEntity {
@@ -171,6 +232,19 @@ export interface AppointmentSlot extends BaseEntity {
  */
 export const BOOKING_CANCEL_CUTOFF_HOURS = 2;
 
+/**
+ * Minutes a B2C `pending_payment` hold may keep a slot before auto-expiry.
+ * Must stay in sync with `public.booking_payment_hold_minutes()` in Postgres.
+ */
+export const BOOKING_PAYMENT_HOLD_MINUTES = 15;
+
+/** Map patient account source → booking billing channel. */
+export function billingChannelForAccountSource(
+  source: AccountSource
+): BillingChannel {
+  return source === 'b2b' ? 'b2b_employer' : 'b2c_prepaid';
+}
+
 export type CancelBookingOutcome = 'cancelled' | 'contact_hospital';
 
 /** Patient reservation of an appointment slot. */
@@ -184,6 +258,87 @@ export interface Booking extends BaseEntity {
   /** Set when patient requests cancel after the free-cancel cutoff. */
   cancelRequestAt: string | null;
   cancelRequestNote: string | null;
+  /** Null on legacy pre-Phase-4 rows until Slice 2 backfills on new books. */
+  billingChannel: BillingChannel | null;
+  paymentStatus: BookingPaymentStatus;
+  /** Fee snapshot at booking time (INR paise). */
+  amountPaise: number | null;
+  currency: typeof BOOKING_CURRENCY;
+}
+
+/** Razorpay payment attempt tied to a booking. */
+export interface Payment extends BaseEntity {
+  bookingId: string;
+  patientId: string;
+  amountPaise: number;
+  currency: typeof BOOKING_CURRENCY;
+  status: PaymentRecordStatus;
+  gateway: PaymentGateway;
+  gatewayOrderId: string | null;
+  gatewayPaymentId: string | null;
+  gatewaySignature: string | null;
+  /** Set after a successful full refund (Slice 5 free-cancel). */
+  gatewayRefundId: string | null;
+  failureReason: string | null;
+  paidAt: string | null;
+}
+
+/**
+ * Refund ledger row for a B2C payment.
+ * Phase 4 wires free-cancel + hold-expired pending; Phase 7 adds reschedule_failed.
+ */
+export interface Refund extends BaseEntity {
+  paymentId: string;
+  bookingId: string;
+  patientId: string;
+  amountPaise: number;
+  currency: typeof BOOKING_CURRENCY;
+  status: RefundStatus;
+  reason: RefundReason;
+  gatewayRefundId: string | null;
+  failureReason: string | null;
+  notes: string | null;
+  processedAt: string | null;
+}
+
+/** Patient creates a Razorpay order for a `pending_payment` booking. */
+export interface CreatePaymentOrderInput {
+  bookingId: string;
+}
+
+/**
+ * Checkout payload returned by `POST /payments/orders`.
+ * `mode: 'dev_bypass'` when Razorpay keys are unset (local/dev only).
+ */
+export interface CreatePaymentOrderResult {
+  mode: 'razorpay' | 'dev_bypass';
+  paymentId: string;
+  bookingId: string;
+  amountPaise: number;
+  currency: typeof BOOKING_CURRENCY;
+  /** Present for Razorpay mode (public key id). */
+  razorpayKeyId: string | null;
+  /** Present for Razorpay mode. */
+  razorpayOrderId: string | null;
+  /**
+   * Hosted Checkout.js page (open with WebBrowser).
+   * Null in `dev_bypass` mode — call verify with empty gateway fields.
+   */
+  checkoutUrl: string | null;
+}
+
+/** Client → backend after Checkout success (or dev bypass). */
+export interface VerifyPaymentInput {
+  bookingId: string;
+  paymentId: string;
+  razorpayOrderId?: string | null;
+  razorpayPaymentId?: string | null;
+  razorpaySignature?: string | null;
+}
+
+export interface VerifyPaymentResult {
+  booking: Booking;
+  payment: Payment;
 }
 
 export interface CancelBookingResult {
@@ -191,6 +346,14 @@ export interface CancelBookingResult {
   cutoffHours: number;
   message: string;
   booking: Booking;
+  /** True when a paid fee was refunded as part of free cancel. */
+  refunded?: boolean;
+}
+
+/** Patient cancel via backend (handles refunds for paid bookings). */
+export interface CancelBookingInput {
+  bookingId: string;
+  reason?: string | null;
 }
 
 /** True when `now` is still before the free-cancel deadline. */
@@ -232,6 +395,15 @@ export type AuditAction =
   | 'booking.created'
   | 'booking.cancelled'
   | 'booking.cancel_requested'
+  | 'booking.payment_hold_expired'
+  | 'booking.payment_confirmed'
+  | 'payment.created'
+  | 'payment.paid'
+  | 'payment.failed'
+  | 'payment.refunded'
+  | 'refund.requested'
+  | 'refund.succeeded'
+  | 'refund.failed'
   | (string & {});
 
 /** Field-level change recorded in audit metadata. */
@@ -311,6 +483,7 @@ export interface DoctorRow {
   mobile: string | null;
   photo_url: string | null;
   is_active: boolean;
+  consultation_fee_paise?: number;
   created_at: string;
   updated_at: string;
 }
@@ -354,6 +527,10 @@ export function mapDoctorRow(row: DoctorRow): Doctor {
     mobile: row.mobile,
     photoUrl: row.photo_url,
     isActive: row.is_active,
+    consultationFeePaise:
+      typeof row.consultation_fee_paise === 'number'
+        ? row.consultation_fee_paise
+        : CONSULTATION_FEE_DEFAULT_PAISE,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -396,6 +573,45 @@ export interface BookingRow {
   cancel_reason: string | null;
   cancel_request_at: string | null;
   cancel_request_note: string | null;
+  billing_channel?: BillingChannel | null;
+  payment_status?: BookingPaymentStatus;
+  amount_paise?: number | null;
+  currency?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentRow {
+  id: string;
+  booking_id: string;
+  patient_id: string;
+  amount_paise: number;
+  currency: string;
+  status: PaymentRecordStatus;
+  gateway: string;
+  gateway_order_id: string | null;
+  gateway_payment_id: string | null;
+  gateway_signature: string | null;
+  gateway_refund_id?: string | null;
+  failure_reason: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RefundRow {
+  id: string;
+  payment_id: string;
+  booking_id: string;
+  patient_id: string;
+  amount_paise: number;
+  currency: string;
+  status: RefundStatus;
+  reason: RefundReason;
+  gateway_refund_id: string | null;
+  failure_reason: string | null;
+  notes: string | null;
+  processed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -446,17 +662,64 @@ export function mapBookingRow(row: BookingRow): Booking {
     cancelReason: row.cancel_reason,
     cancelRequestAt: row.cancel_request_at ?? null,
     cancelRequestNote: row.cancel_request_note ?? null,
+    billingChannel: row.billing_channel ?? null,
+    paymentStatus: row.payment_status ?? 'not_required',
+    amountPaise: row.amount_paise ?? null,
+    currency: BOOKING_CURRENCY,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-/** Map RPC `cancel_appointment_booking` jsonb payload. */
+export function mapPaymentRow(row: PaymentRow): Payment {
+  if (row.gateway !== 'razorpay') {
+    throw new Error(`Unexpected payment gateway: ${row.gateway}`);
+  }
+  return {
+    id: row.id,
+    bookingId: row.booking_id,
+    patientId: row.patient_id,
+    amountPaise: row.amount_paise,
+    currency: BOOKING_CURRENCY,
+    status: row.status,
+    gateway: 'razorpay',
+    gatewayOrderId: row.gateway_order_id,
+    gatewayPaymentId: row.gateway_payment_id,
+    gatewaySignature: row.gateway_signature,
+    gatewayRefundId: row.gateway_refund_id ?? null,
+    failureReason: row.failure_reason,
+    paidAt: row.paid_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function mapRefundRow(row: RefundRow): Refund {
+  return {
+    id: row.id,
+    paymentId: row.payment_id,
+    bookingId: row.booking_id,
+    patientId: row.patient_id,
+    amountPaise: row.amount_paise,
+    currency: BOOKING_CURRENCY,
+    status: row.status,
+    reason: row.reason,
+    gatewayRefundId: row.gateway_refund_id,
+    failureReason: row.failure_reason,
+    notes: row.notes,
+    processedAt: row.processed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** Map RPC / backend cancel payload. */
 export function mapCancelBookingResult(payload: {
   outcome: string;
   cutoffHours: number;
   message: string;
   booking: BookingRow;
+  refunded?: boolean;
 }): CancelBookingResult {
   if (payload.outcome !== 'cancelled' && payload.outcome !== 'contact_hospital') {
     throw new Error(`Unexpected cancel outcome: ${payload.outcome}`);
@@ -466,6 +729,7 @@ export function mapCancelBookingResult(payload: {
     cutoffHours: payload.cutoffHours,
     message: payload.message,
     booking: mapBookingRow(payload.booking),
+    refunded: Boolean(payload.refunded),
   };
 }
 

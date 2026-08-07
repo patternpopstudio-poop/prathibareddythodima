@@ -1,17 +1,46 @@
 import type { InviteUserResult } from '@teleconsult/shared-types';
+import {
+  CONSULTATION_FEE_DEFAULT_PAISE,
+  CONSULTATION_FEE_MAX_PAISE,
+  CONSULTATION_FEE_MIN_PAISE,
+  isValidConsultationFeePaise,
+} from '@teleconsult/shared-types';
 import { Router } from 'express';
 import { z } from 'zod';
 
 import { requireAuth, type AuthedRequest } from '../lib/auth.js';
 import { getSupabaseAdmin } from '../lib/supabase.js';
 
-const inviteSchema = z.object({
-  email: z.string().email(),
-  role: z.enum(['doctor', 'admin']),
-  fullName: z.string().min(1).max(200),
-  mobile: z.string().min(6).max(20).optional(),
-  redirectTo: z.string().url().optional(),
-});
+const inviteSchema = z
+  .object({
+    email: z.string().email('Enter a valid email address.'),
+    role: z.enum(['doctor', 'admin'], {
+      errorMap: () => ({ message: 'Role must be doctor or admin.' }),
+    }),
+    fullName: z.string().min(1, 'Full name is required.').max(200),
+    mobile: z.preprocess(
+      (val) => (typeof val === 'string' && val.trim() === '' ? undefined : val),
+      z
+        .string()
+        .trim()
+        .min(6, 'Mobile must be at least 6 characters.')
+        .max(20, 'Mobile must be at most 20 characters.')
+        .optional()
+    ),
+    consultationFeePaise: z.number().int().optional(),
+    redirectTo: z.string().url('Invalid redirect URL.').optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.role !== 'doctor') return;
+    const fee = data.consultationFeePaise ?? CONSULTATION_FEE_DEFAULT_PAISE;
+    if (!isValidConsultationFeePaise(fee)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['consultationFeePaise'],
+        message: `Consultation fee must be between ₹${CONSULTATION_FEE_MIN_PAISE / 100} and ₹${CONSULTATION_FEE_MAX_PAISE / 100}.`,
+      });
+    }
+  });
 
 type InviteRole = z.infer<typeof inviteSchema>['role'];
 
@@ -24,6 +53,7 @@ async function ensureInviteProfile(
     fullName: string;
     email: string;
     mobile?: string;
+    consultationFeePaise?: number;
   }
 ): Promise<string | null> {
   if (input.role === 'doctor') {
@@ -36,6 +66,7 @@ async function ensureInviteProfile(
         full_name: input.fullName,
         email: input.email,
         mobile: input.mobile ?? null,
+        consultation_fee_paise: input.consultationFeePaise ?? CONSULTATION_FEE_DEFAULT_PAISE,
       },
       { onConflict: 'id' }
     );
@@ -65,7 +96,8 @@ invitesRouter.post('/', async (req, res) => {
 
   const parsed = inviteSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.flatten() });
+    const message = parsed.error.issues.map((issue) => issue.message).join('; ');
+    res.status(400).json({ error: message || 'Invalid invite payload.' });
     return;
   }
 
@@ -108,6 +140,10 @@ invitesRouter.post('/', async (req, res) => {
     fullName: input.fullName.trim(),
     email: input.email.trim().toLowerCase(),
     mobile: input.mobile?.trim(),
+    consultationFeePaise:
+      input.role === 'doctor'
+        ? (input.consultationFeePaise ?? CONSULTATION_FEE_DEFAULT_PAISE)
+        : undefined,
   });
   if (profileError) {
     res.status(500).json({
@@ -151,6 +187,12 @@ invitesRouter.post('/', async (req, res) => {
     metadata: {
       email: input.email.trim().toLowerCase(),
       role: input.role,
+      ...(input.role === 'doctor'
+        ? {
+            consultation_fee_paise:
+              input.consultationFeePaise ?? CONSULTATION_FEE_DEFAULT_PAISE,
+          }
+        : {}),
     },
   });
 

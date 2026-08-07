@@ -1,7 +1,19 @@
-import type { AppointmentSlot, Doctor } from '@teleconsult/shared-types';
+import {
+  BOOKING_PAYMENT_HOLD_MINUTES,
+  formatInrFromPaise,
+  type AppointmentSlot,
+  type Doctor,
+} from '@teleconsult/shared-types';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 
 import { AppText } from '@/components/ui/app-text';
 import { Button } from '@/components/ui/button';
@@ -10,13 +22,15 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Icon } from '@/components/ui/icon';
 import { Screen } from '@/components/ui/screen';
 import { ScreenNav } from '@/components/ui/screen-nav';
+import { SlotPicker } from '@/components/ui/slot-picker';
 import { Colors, Radius, Shadow, Spacing } from '@/constants/theme';
 import { bookAppointmentSlot } from '@/lib/bookings';
 import { fetchDoctorById, fetchOpenSlotsForDoctor } from '@/lib/doctors';
 import {
+  formatBookingSummaryDate,
   formatSlotDayLabel,
+  formatSlotTimeLabel,
   formatSlotTimeRange,
-  groupSlotsByDay,
 } from '@/lib/slot-display';
 
 export default function DoctorDetailScreen() {
@@ -66,7 +80,6 @@ export default function DoctorDetailScreen() {
     void load();
   }, [load]);
 
-  const groups = useMemo(() => groupSlotsByDay(slots), [slots]);
   const selectedSlot = useMemo(
     () => slots.find((s) => s.id === selectedSlotId) ?? null,
     [slots, selectedSlotId]
@@ -84,7 +97,6 @@ export default function DoctorDetailScreen() {
       const message =
         err instanceof Error ? err.message : 'Could not book this slot.';
       setError(message);
-      // Slot may have been taken — refresh open times
       await load();
     } finally {
       setBooking(false);
@@ -94,121 +106,126 @@ export default function DoctorDetailScreen() {
   function onBookPress() {
     if (!selectedSlot || !doctor) return;
 
+    const when = `${formatSlotDayLabel(selectedSlot.startsAt)} at ${formatSlotTimeRange(selectedSlot.startsAt, selectedSlot.endsAt)}`;
+    const fee = formatInrFromPaise(doctor.consultationFeePaise);
+    const name = doctor.fullName || 'this doctor';
+
     Alert.alert(
-      'Confirm booking',
-      `Book ${doctor.fullName || 'this doctor'} on ${formatSlotDayLabel(selectedSlot.startsAt)} at ${formatSlotTimeRange(selectedSlot.startsAt, selectedSlot.endsAt)}?`,
+      'Reserve slot',
+      `Hold ${name} on ${when} for ${fee}?\n\nYour slot is reserved for ${BOOKING_PAYMENT_HOLD_MINUTES} minutes while you complete payment.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Book', onPress: () => void confirmBooking() },
+        { text: 'Reserve', onPress: () => void confirmBooking() },
       ]
     );
   }
 
   return (
-    <Screen>
-      <ScreenNav title="Doctor" />
+    <Screen scroll={false} padded={false}>
+      <View style={styles.navPad}>
+        <ScreenNav title="Doctor" />
+      </View>
 
       {loading ? (
-        <View style={styles.centered}>
+        <View style={[styles.centered, styles.padX]}>
           <ActivityIndicator color={Colors.primary900} />
         </View>
       ) : null}
 
       {error && !doctor ? (
-        <EmptyState icon="stethoscope" title="Unavailable" description={error} />
+        <View style={styles.padX}>
+          <EmptyState icon="stethoscope" title="Unavailable" description={error} />
+        </View>
       ) : null}
 
       {doctor ? (
         <>
-          <View style={styles.profileCard}>
-            <DoctorAvatar name={doctor.fullName} photoUrl={doctor.photoUrl} size={80} />
-            <View style={styles.profileCopy}>
-              <AppText variant="h3" style={styles.name}>
-                {doctor.fullName || 'Doctor'}
-              </AppText>
-              <AppText variant="muted">
-                {slots.length > 0
-                  ? `${slots.length} open slot${slots.length === 1 ? '' : 's'} ahead`
-                  : 'No open slots right now'}
-              </AppText>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}>
+            <View style={styles.profileCard}>
+              <DoctorAvatar name={doctor.fullName} photoUrl={doctor.photoUrl} size={80} />
+              <View style={styles.profileCopy}>
+                <AppText variant="h3" style={styles.name}>
+                  {doctor.fullName || 'Doctor'}
+                </AppText>
+                <AppText variant="muted">
+                  {formatInrFromPaise(doctor.consultationFeePaise)} ·{' '}
+                  {slots.length > 0
+                    ? `${slots.length} open slot${slots.length === 1 ? '' : 's'} ahead`
+                    : 'No open slots right now'}
+                </AppText>
+              </View>
+              <Pressable
+                onPress={() => void load()}
+                hitSlop={8}
+                disabled={booking}
+                accessibilityRole="button"
+                accessibilityLabel="Refresh slots"
+                style={({ pressed }) => [styles.refreshBtn, pressed && styles.pressed]}>
+                <Icon name="calendar" size={18} color={Colors.primary900} />
+              </Pressable>
             </View>
-          </View>
 
-          <View style={styles.sectionHead}>
-            <AppText variant="h3">Pick a time</AppText>
-            <Pressable onPress={() => void load()} hitSlop={8} disabled={booking}>
-              <AppText variant="bodyMedium" style={styles.refresh}>
-                Refresh
+            {error ? (
+              <AppText variant="muted" style={styles.errorInline}>
+                {error}
               </AppText>
-            </Pressable>
-          </View>
+            ) : null}
 
-          {error ? (
-            <AppText variant="muted" style={styles.errorInline}>
-              {error}
-            </AppText>
-          ) : null}
+            {slots.length === 0 ? (
+              <EmptyState
+                icon="calendar"
+                title="No open slots"
+                description="This doctor has not published open times yet. Check back later or pick another doctor."
+              />
+            ) : (
+              <SlotPicker
+                slots={slots}
+                selectedSlotId={selectedSlotId}
+                onSelectSlot={setSelectedSlotId}
+                disabled={booking}
+              />
+            )}
+          </ScrollView>
 
-          {slots.length === 0 ? (
-            <EmptyState
-              icon="calendar"
-              title="No open slots"
-              description="This doctor has not published open times yet. Check back later or pick another doctor."
-            />
-          ) : (
-            <View style={styles.groups}>
-              {groups.map((group) => (
-                <View key={group.dayKey} style={styles.dayBlock}>
-                  <AppText variant="label" style={styles.dayLabel}>
-                    {group.dayLabel}
-                  </AppText>
-                  <View style={styles.slotList}>
-                    {group.slots.map((slot) => {
-                      const selected = slot.id === selectedSlotId;
-                      return (
-                        <Pressable
-                          key={slot.id}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected }}
-                          disabled={booking}
-                          onPress={() => setSelectedSlotId(slot.id)}
-                          style={({ pressed }) => [
-                            styles.slotRow,
-                            selected && styles.slotRowSelected,
-                            pressed && styles.pressed,
-                          ]}>
-                          <View
-                            style={[styles.slotIcon, selected && styles.slotIconSelected]}>
-                            <Icon
-                              name="clock"
-                              size={16}
-                              color={selected ? Colors.white : Colors.primary900}
-                            />
-                          </View>
-                          <AppText
-                            variant="bodyMedium"
-                            style={[styles.slotTime, selected && styles.slotTimeSelected]}>
-                            {formatSlotTimeRange(slot.startsAt, slot.endsAt)}
-                          </AppText>
-                          {selected ? (
-                            <Icon name="check" size={18} color={Colors.primary900} />
-                          ) : null}
-                        </Pressable>
-                      );
-                    })}
+          {slots.length > 0 ? (
+            <View style={styles.footer}>
+              {selectedSlot ? (
+                <View style={styles.summaryCard}>
+                  <View style={styles.summaryRow}>
+                    <Icon name="calendar" size={16} color={Colors.primary900} />
+                    <AppText variant="bodyMedium" style={styles.summaryText}>
+                      {formatBookingSummaryDate(selectedSlot.startsAt)}
+                      {' · '}
+                      {formatSlotTimeLabel(selectedSlot.startsAt)}
+                    </AppText>
                   </View>
                 </View>
-              ))}
+              ) : (
+                <AppText variant="muted" style={styles.summaryHint}>
+                  Select a date and time to continue
+                </AppText>
+              )}
 
               <Button
-                title={selectedSlot ? 'Confirm booking' : 'Select a time'}
+                title={selectedSlot ? 'Reserve & continue' : 'Select a time'}
                 showArrow
                 loading={booking}
                 disabled={!selectedSlot || booking}
                 onPress={onBookPress}
               />
+
+              <View style={styles.secureRow}>
+                <Icon name="lock" size={12} color={Colors.gray500} />
+                <AppText variant="muted" style={styles.secureText}>
+                  Slot held {BOOKING_PAYMENT_HOLD_MINUTES} min for payment.
+                </AppText>
+              </View>
             </View>
-          )}
+          ) : null}
         </>
       ) : null}
     </Screen>
@@ -216,9 +233,27 @@ export default function DoctorDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  navPad: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
+  },
+  padX: {
+    paddingHorizontal: Spacing.lg,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.lg,
+    gap: Spacing.lg,
+  },
   centered: {
+    flex: 1,
     paddingVertical: Spacing.xl,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   profileCard: {
     flexDirection: 'row',
@@ -238,64 +273,57 @@ const styles = StyleSheet.create({
   name: {
     color: Colors.text,
   },
-  sectionHead: {
-    flexDirection: 'row',
+  refreshBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.pill,
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  refresh: {
-    color: Colors.primary900,
+    justifyContent: 'center',
+    backgroundColor: Colors.primary50,
   },
   errorInline: {
     color: Colors.accentRed,
   },
-  groups: {
-    gap: Spacing.lg,
-  },
-  dayBlock: {
+  footer: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.md,
     gap: Spacing.sm,
+    backgroundColor: Colors.background,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
   },
-  dayLabel: {
-    color: Colors.gray600,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    fontSize: 11,
-  },
-  slotList: {
-    gap: Spacing.sm,
-  },
-  slotRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingVertical: Spacing.md,
+  summaryCard: {
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
+    borderRadius: Radius.chip,
     backgroundColor: Colors.surface,
-    borderRadius: Radius.input,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  slotRowSelected: {
-    borderColor: Colors.primary900,
-    backgroundColor: Colors.primary50,
-  },
-  slotIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.primary50,
+  summaryRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: Spacing.sm,
   },
-  slotIconSelected: {
-    backgroundColor: Colors.primary900,
-  },
-  slotTime: {
+  summaryText: {
     flex: 1,
     color: Colors.text,
+    fontSize: 14,
   },
-  slotTimeSelected: {
-    color: Colors.primary700,
+  summaryHint: {
+    textAlign: 'center',
+    fontSize: 13,
+  },
+  secureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingBottom: Spacing.xs,
+  },
+  secureText: {
+    fontSize: 12,
   },
   pressed: {
     opacity: 0.92,

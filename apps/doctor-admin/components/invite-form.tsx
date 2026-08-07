@@ -1,18 +1,27 @@
 'use client';
 
+import {
+  CONSULTATION_FEE_DEFAULT_PAISE,
+  CONSULTATION_FEE_MAX_PAISE,
+  CONSULTATION_FEE_MIN_PAISE,
+  type InviteUserResult,
+} from '@teleconsult/shared-types';
 import { useState } from 'react';
-
-import type { InviteUserResult } from '@teleconsult/shared-types';
 
 import { createClient } from '@/lib/supabase/client';
 
 type RoleOption = 'doctor' | 'admin';
+
+const DEFAULT_FEE_RUPEES = CONSULTATION_FEE_DEFAULT_PAISE / 100;
+const MIN_FEE_RUPEES = CONSULTATION_FEE_MIN_PAISE / 100;
+const MAX_FEE_RUPEES = CONSULTATION_FEE_MAX_PAISE / 100;
 
 export function InviteForm() {
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<RoleOption>('doctor');
   const [mobile, setMobile] = useState('');
+  const [feeRupees, setFeeRupees] = useState(String(DEFAULT_FEE_RUPEES));
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<InviteUserResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -33,33 +42,65 @@ export function InviteForm() {
         throw new Error('Not signed in.');
       }
 
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
-      const res = await fetch(`${backendUrl}/invites`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          email,
-          fullName,
-          role,
-          mobile: mobile || undefined,
-          redirectTo: `${window.location.origin}/auth/callback`,
-        }),
-      });
+      let consultationFeePaise: number | undefined;
+      if (role === 'doctor') {
+        const rupees = Number(feeRupees);
+        if (!Number.isInteger(rupees) || rupees < MIN_FEE_RUPEES || rupees > MAX_FEE_RUPEES) {
+          throw new Error(
+            `Consultation fee must be an integer between ₹${MIN_FEE_RUPEES} and ₹${MAX_FEE_RUPEES}.`
+          );
+        }
+        consultationFeePaise = rupees * 100;
+      }
 
-      const body = (await res.json()) as InviteUserResult & { error?: unknown };
-      if (!res.ok) {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
+      const trimmedMobile = mobile.trim();
+      let res: Response;
+      try {
+        res = await fetch(`${backendUrl}/invites`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            email: email.trim(),
+            fullName: fullName.trim(),
+            role,
+            mobile: trimmedMobile || undefined,
+            consultationFeePaise,
+            redirectTo: `${window.location.origin}/auth/callback`,
+          }),
+        });
+      } catch {
         throw new Error(
-          typeof body.error === 'string' ? body.error : 'Invite failed. Is the backend running?'
+          `Cannot reach backend at ${backendUrl}. Is it running (npm run dev in apps/backend)?`
         );
+      }
+
+      let body: InviteUserResult & { error?: unknown };
+      try {
+        body = (await res.json()) as InviteUserResult & { error?: unknown };
+      } catch {
+        throw new Error(`Invite failed (HTTP ${res.status}). Backend returned a non-JSON response.`);
+      }
+
+      if (!res.ok) {
+        const err = body.error;
+        const message =
+          typeof err === 'string'
+            ? err
+            : err && typeof err === 'object'
+              ? JSON.stringify(err)
+              : `Invite failed (HTTP ${res.status}).`;
+        throw new Error(message);
       }
 
       setResult(body);
       setEmail('');
       setFullName('');
       setMobile('');
+      setFeeRupees(String(DEFAULT_FEE_RUPEES));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invite failed.');
     } finally {
@@ -111,6 +152,24 @@ export function InviteForm() {
             className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
           />
         </label>
+        {role === 'doctor' ? (
+          <label className="flex flex-col gap-1.5 text-sm font-semibold">
+            Consultation fee (₹)
+            <input
+              type="number"
+              required
+              min={MIN_FEE_RUPEES}
+              max={MAX_FEE_RUPEES}
+              step={1}
+              value={feeRupees}
+              onChange={(e) => setFeeRupees(e.target.value)}
+              className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
+            />
+            <span className="text-xs font-normal text-muted">
+              INR · ₹{MIN_FEE_RUPEES}–₹{MAX_FEE_RUPEES} per consult
+            </span>
+          </label>
+        ) : null}
 
         {error ? <p className="text-sm text-danger">{error}</p> : null}
 
