@@ -1,5 +1,6 @@
 import type { Doctor, DoctorProfileInput, DoctorRow } from '@teleconsult/shared-types';
 import { mapDoctorRow } from '@teleconsult/shared-types';
+import { cache } from 'react';
 
 import type { createClient } from '@/lib/supabase/server';
 
@@ -7,20 +8,19 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 export const DOCTOR_PHOTOS_BUCKET = 'doctor-photos';
 
-export async function fetchDoctorProfile(
-  supabase: Supabase,
-  doctorId: string
-): Promise<Doctor | null> {
-  const { data, error } = await supabase
-    .from('doctors')
-    .select('*')
-    .eq('id', doctorId)
-    .maybeSingle();
+export const fetchDoctorProfile = cache(
+  async (supabase: Supabase, doctorId: string): Promise<Doctor | null> => {
+    const { data, error } = await supabase
+      .from('doctors')
+      .select('*')
+      .eq('id', doctorId)
+      .maybeSingle();
 
-  if (error) throw error;
-  if (!data) return null;
-  return mapDoctorRow(data as DoctorRow);
-}
+    if (error) throw error;
+    if (!data) return null;
+    return mapDoctorRow(data as DoctorRow);
+  }
+);
 
 export async function updateDoctorProfile(
   supabase: Supabase,

@@ -81,6 +81,10 @@ export interface Doctor extends BaseEntity {
   mobile: string | null;
   photoUrl: string | null;
   isActive: boolean;
+  /** Clinical specialty shown to patients (ENT-focused clinic). */
+  specialty: string;
+  /** Qualification string, e.g. MBBS, MS (ENT). */
+  degrees: string;
   /** Consultation fee in INR paise (₹400–₹700). Admin-managed. */
   consultationFeePaise: number;
 }
@@ -171,7 +175,24 @@ export type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export type SlotStatus = 'open' | 'booked' | 'blocked' | 'cancelled';
 
-export type BookingStatus = 'confirmed' | 'pending_payment' | 'cancelled';
+/**
+ * Online (teleconsult + chat) vs offline (in-clinic; no chat).
+ * Must stay in sync with `public.consultation_mode` in Postgres.
+ */
+export type ConsultationMode = 'online' | 'offline';
+
+/**
+ * How the patient pays for a booking.
+ * `clinic` is only valid when `mode = offline` (enforced in DB).
+ */
+export type BookingPaymentMethod = 'online' | 'clinic';
+
+export type BookingStatus =
+  | 'confirmed'
+  | 'pending_payment'
+  | 'pending_admin'
+  | 'rejected'
+  | 'cancelled';
 
 /** How a booking is billed (set when booking is created in Phase 4 Slice 2+). */
 export type BillingChannel = 'b2c_prepaid' | 'b2b_employer';
@@ -202,6 +223,33 @@ export type RefundReason =
   | 'hold_expired_after_pay'
   | 'reschedule_failed';
 
+/**
+ * Consultation case lifecycle (Phase 5).
+ * `closed` ships in Phase 7 — not in the DB enum yet.
+ */
+export type ConsultationStatus = 'open' | 'in_progress';
+
+/** Who sent a chat message (admins are read-only on chat). */
+export type MessageSenderRole = 'patient' | 'doctor';
+
+/** Max UTF-16 / Postgres character length for `messages.body`. */
+export const MESSAGE_BODY_MAX_LENGTH = 8000;
+
+/** Private Storage bucket for consultation chat files (Slice 5.5). */
+export const CONSULTATION_ATTACHMENTS_BUCKET = 'consultation-attachments';
+
+/** Max attachment size (10 MiB) — matches bucket + DB check. */
+export const MESSAGE_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+
+/** Allowed chat attachment MIME types (PDF, JPG, PNG). */
+export const MESSAGE_ATTACHMENT_MIME_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+] as const;
+
+export type MessageAttachmentMime = (typeof MESSAGE_ATTACHMENT_MIME_TYPES)[number];
+
 /** Weekly working-hour rule used to generate concrete slots. */
 export interface DoctorAvailability extends BaseEntity {
   doctorId: string;
@@ -215,6 +263,8 @@ export interface DoctorAvailability extends BaseEntity {
   quietStart: string | null;
   quietEnd: string | null;
   isActive: boolean;
+  /** Online vs offline inventory (Slice 5.7). */
+  mode: ConsultationMode;
 }
 
 /** Concrete bookable window for a doctor. */
@@ -224,6 +274,8 @@ export interface AppointmentSlot extends BaseEntity {
   startsAt: string;
   endsAt: string;
   status: SlotStatus;
+  /** Online vs offline; must not overlap other non-cancelled slots for the doctor. */
+  mode: ConsultationMode;
 }
 
 /**
@@ -247,12 +299,23 @@ export function billingChannelForAccountSource(
 
 export type CancelBookingOutcome = 'cancelled' | 'contact_hospital';
 
-/** Patient reservation of an appointment slot. */
+/** Patient reservation of an appointment slot (or overflow request without a slot). */
 export interface Booking extends BaseEntity {
-  slotId: string;
+  /**
+   * Null when `status = pending_admin` (overflow request awaiting admin capacity).
+   * Required for `confirmed` / `pending_payment`.
+   */
+  slotId: string | null;
   patientId: string;
   doctorId: string;
   status: BookingStatus;
+  /** Online vs offline consultation. */
+  mode: ConsultationMode;
+  /**
+   * How the patient pays. Defaults to `online` on slot books; `clinic` only for offline.
+   * Null on legacy pre-5.7 rows.
+   */
+  paymentMethod: BookingPaymentMethod | null;
   cancelledAt: string | null;
   cancelReason: string | null;
   /** Set when patient requests cancel after the free-cancel cutoff. */
@@ -264,6 +327,12 @@ export interface Booking extends BaseEntity {
   /** Fee snapshot at booking time (INR paise). */
   amountPaise: number | null;
   currency: typeof BOOKING_CURRENCY;
+  /** Preferred window for `pending_admin` overflow requests (Slice 5.11). */
+  preferredStartsAt: string | null;
+  preferredEndsAt: string | null;
+  preferredNote: string | null;
+  /** Admin reason when `status = rejected` (Slice 5.11). */
+  rejectReason: string | null;
 }
 
 /** Razorpay payment attempt tied to a booking. */
@@ -299,6 +368,66 @@ export interface Refund extends BaseEntity {
   failureReason: string | null;
   notes: string | null;
   processedAt: string | null;
+}
+
+/**
+ * Doctor case-list queue filters (Phase 5 Slice 5.6).
+ * - unreplied: never received a doctor reply (`status = open`)
+ * - response_awaited: in progress and patient spoke last
+ */
+export type DoctorCaseQueue = 'all' | 'unreplied' | 'response_awaited';
+
+/**
+ * Chat case for a confirmed booking (Phase 5).
+ * Opened in Slice 5.2 when booking becomes `confirmed` (DB trigger + backend heal).
+ * Chat messaging is for `mode = online` only (Slice 5.12 RLS + UI).
+ */
+export interface Consultation extends BaseEntity {
+  bookingId: string;
+  patientId: string;
+  doctorId: string;
+  status: ConsultationStatus;
+  /** Copied from booking at open. */
+  mode: ConsultationMode;
+  /** Null until the first message. */
+  lastMessageAt: string | null;
+  /** Sender role of the latest message; null until first message. */
+  lastMessageSenderRole: MessageSenderRole | null;
+}
+
+/**
+ * Consultation chat message (text and/or file attachment).
+ * Content is immutable; `readAt` may be set by the peer (Slice 5.13).
+ */
+export interface Message {
+  id: string;
+  consultationId: string;
+  senderId: string;
+  senderRole: MessageSenderRole;
+  /** Null when the message is attachment-only. */
+  body: string | null;
+  attachmentPath: string | null;
+  attachmentName: string | null;
+  attachmentMime: MessageAttachmentMime | null;
+  attachmentSizeBytes: number | null;
+  createdAt: string;
+  /** When the peer first read this message; null until then. */
+  readAt: string | null;
+}
+
+/** Metadata persisted on `messages` after a Storage upload. */
+export interface MessageAttachmentInput {
+  path: string;
+  name: string;
+  mime: MessageAttachmentMime;
+  sizeBytes: number;
+}
+
+/** Patient / doctor sends a text and/or attachment message. */
+export interface SendMessageInput {
+  consultationId: string;
+  body?: string | null;
+  attachment?: MessageAttachmentInput | null;
 }
 
 /** Patient creates a Razorpay order for a `pending_payment` booking. */
@@ -378,6 +507,8 @@ export interface DoctorAvailabilityInput {
   quietStart?: string | null;
   quietEnd?: string | null;
   isActive?: boolean;
+  /** Defaults to `online` when omitted (pre-tab UI). */
+  mode?: ConsultationMode;
 }
 
 /** Doctor creates a concrete open slot (manual or generated). */
@@ -386,6 +517,8 @@ export interface AppointmentSlotInput {
   endsAt: string;
   availabilityId?: string | null;
   status?: Extract<SlotStatus, 'open' | 'blocked'>;
+  /** Defaults to `online` when omitted (pre-tab UI). */
+  mode?: ConsultationMode;
 }
 
 /** Audit log actions written by DB triggers / backend. */
@@ -397,6 +530,9 @@ export type AuditAction =
   | 'booking.cancel_requested'
   | 'booking.payment_hold_expired'
   | 'booking.payment_confirmed'
+  | 'booking.pending_admin'
+  | 'booking.rejected'
+  | 'booking.admin_assigned'
   | 'payment.created'
   | 'payment.paid'
   | 'payment.failed'
@@ -404,6 +540,9 @@ export type AuditAction =
   | 'refund.requested'
   | 'refund.succeeded'
   | 'refund.failed'
+  | 'consultation.created'
+  | 'consultation.status_updated'
+  | 'message.sent'
   | (string & {});
 
 /** Field-level change recorded in audit metadata. */
@@ -483,6 +622,8 @@ export interface DoctorRow {
   mobile: string | null;
   photo_url: string | null;
   is_active: boolean;
+  specialty?: string | null;
+  degrees?: string | null;
   consultation_fee_paise?: number;
   created_at: string;
   updated_at: string;
@@ -527,6 +668,8 @@ export function mapDoctorRow(row: DoctorRow): Doctor {
     mobile: row.mobile,
     photoUrl: row.photo_url,
     isActive: row.is_active,
+    specialty: row.specialty?.trim() || 'ENT Specialist',
+    degrees: row.degrees?.trim() || 'MBBS, MS (ENT)',
     consultationFeePaise:
       typeof row.consultation_fee_paise === 'number'
         ? row.consultation_fee_paise
@@ -548,6 +691,7 @@ export interface DoctorAvailabilityRow {
   quiet_start: string | null;
   quiet_end: string | null;
   is_active: boolean;
+  mode?: ConsultationMode;
   created_at: string;
   updated_at: string;
 }
@@ -559,16 +703,19 @@ export interface AppointmentSlotRow {
   starts_at: string;
   ends_at: string;
   status: SlotStatus;
+  mode?: ConsultationMode;
   created_at: string;
   updated_at: string;
 }
 
 export interface BookingRow {
   id: string;
-  slot_id: string;
+  slot_id: string | null;
   patient_id: string;
   doctor_id: string;
   status: BookingStatus;
+  mode?: ConsultationMode;
+  payment_method?: BookingPaymentMethod | null;
   cancelled_at: string | null;
   cancel_reason: string | null;
   cancel_request_at: string | null;
@@ -577,6 +724,10 @@ export interface BookingRow {
   payment_status?: BookingPaymentStatus;
   amount_paise?: number | null;
   currency?: string;
+  preferred_starts_at?: string | null;
+  preferred_ends_at?: string | null;
+  preferred_note?: string | null;
+  reject_reason?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -616,9 +767,84 @@ export interface RefundRow {
   updated_at: string;
 }
 
+export interface ConsultationRow {
+  id: string;
+  booking_id: string;
+  patient_id: string;
+  doctor_id: string;
+  status: ConsultationStatus;
+  mode?: ConsultationMode;
+  last_message_at: string | null;
+  last_message_sender_role: MessageSenderRole | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MessageRow {
+  id: string;
+  consultation_id: string;
+  sender_id: string;
+  sender_role: MessageSenderRole;
+  body: string | null;
+  attachment_path: string | null;
+  attachment_name: string | null;
+  attachment_mime: string | null;
+  attachment_size_bytes: number | null;
+  created_at: string;
+  read_at?: string | null;
+}
+
 function asDayOfWeek(value: number): DayOfWeek {
   if (value >= 0 && value <= 6) return value as DayOfWeek;
   throw new Error(`Invalid day_of_week: ${value}`);
+}
+
+function asConsultationMode(value: ConsultationMode | undefined): ConsultationMode {
+  return value === 'offline' ? 'offline' : 'online';
+}
+
+/** Chat is enabled only for online consultations (Slice 5.12). */
+export function isChatEnabledForMode(mode: ConsultationMode): boolean {
+  return mode === 'online';
+}
+
+/** Patient/doctor copy when an offline case has no messaging. */
+export const OFFLINE_CHAT_UNAVAILABLE_COPY =
+  'In-clinic visit — chat not available';
+
+/** Normalize query/param values to a consultation mode (default online). */
+export function parseConsultationMode(value: string | string[] | undefined | null): ConsultationMode {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw === 'offline' ? 'offline' : 'online';
+}
+
+export function consultationModeLabel(mode: ConsultationMode): string {
+  return mode === 'offline' ? 'Offline' : 'Online';
+}
+
+/** Patient/doctor-facing label for how a booking is paid. */
+export function bookingPaymentMethodLabel(
+  method: BookingPaymentMethod | null | undefined
+): string {
+  if (method === 'clinic') return 'Pay at clinic';
+  if (method === 'online') return 'Pay online';
+  return 'Payment';
+}
+
+/** Compact payment status for clinic / online bookings. */
+export function bookingPaymentStatusLabel(booking: {
+  paymentMethod: BookingPaymentMethod | null;
+  paymentStatus: BookingPaymentStatus;
+  status: BookingStatus;
+}): string {
+  if (booking.paymentMethod === 'clinic') {
+    if (booking.paymentStatus === 'paid') return 'Paid at clinic';
+    if (booking.paymentStatus === 'unpaid') return 'Pay at clinic';
+  }
+  if (booking.status === 'pending_payment') return 'Awaiting payment';
+  if (booking.paymentStatus === 'paid') return 'Paid';
+  if (booking.paymentStatus === 'unpaid') return 'Unpaid';
+  return booking.paymentStatus;
 }
 
 export function mapDoctorAvailabilityRow(row: DoctorAvailabilityRow): DoctorAvailability {
@@ -633,6 +859,7 @@ export function mapDoctorAvailabilityRow(row: DoctorAvailabilityRow): DoctorAvai
     quietStart: row.quiet_start,
     quietEnd: row.quiet_end,
     isActive: row.is_active,
+    mode: asConsultationMode(row.mode),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -646,18 +873,23 @@ export function mapAppointmentSlotRow(row: AppointmentSlotRow): AppointmentSlot 
     startsAt: row.starts_at,
     endsAt: row.ends_at,
     status: row.status,
+    mode: asConsultationMode(row.mode),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
 export function mapBookingRow(row: BookingRow): Booking {
+  const paymentMethod = row.payment_method;
   return {
     id: row.id,
-    slotId: row.slot_id,
+    slotId: row.slot_id ?? null,
     patientId: row.patient_id,
     doctorId: row.doctor_id,
     status: row.status,
+    mode: asConsultationMode(row.mode),
+    paymentMethod:
+      paymentMethod === 'online' || paymentMethod === 'clinic' ? paymentMethod : null,
     cancelledAt: row.cancelled_at,
     cancelReason: row.cancel_reason,
     cancelRequestAt: row.cancel_request_at ?? null,
@@ -666,6 +898,10 @@ export function mapBookingRow(row: BookingRow): Booking {
     paymentStatus: row.payment_status ?? 'not_required',
     amountPaise: row.amount_paise ?? null,
     currency: BOOKING_CURRENCY,
+    preferredStartsAt: row.preferred_starts_at ?? null,
+    preferredEndsAt: row.preferred_ends_at ?? null,
+    preferredNote: row.preferred_note ?? null,
+    rejectReason: row.reject_reason ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -713,6 +949,133 @@ export function mapRefundRow(row: RefundRow): Refund {
   };
 }
 
+export function mapConsultationRow(row: ConsultationRow): Consultation {
+  return {
+    id: row.id,
+    bookingId: row.booking_id,
+    patientId: row.patient_id,
+    doctorId: row.doctor_id,
+    status: row.status,
+    mode: asConsultationMode(row.mode),
+    lastMessageAt: row.last_message_at,
+    lastMessageSenderRole: row.last_message_sender_role ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** True when the consultation belongs to a doctor case queue. */
+export function consultationMatchesQueue(
+  consultation: Pick<Consultation, 'status' | 'lastMessageSenderRole'>,
+  queue: DoctorCaseQueue
+): boolean {
+  if (queue === 'all') return true;
+  if (queue === 'unreplied') return consultation.status === 'open';
+  return (
+    consultation.status === 'in_progress' &&
+    consultation.lastMessageSenderRole === 'patient'
+  );
+}
+
+function asMessageAttachmentMime(value: string | null): MessageAttachmentMime | null {
+  if (!value) return null;
+  if ((MESSAGE_ATTACHMENT_MIME_TYPES as readonly string[]).includes(value)) {
+    return value as MessageAttachmentMime;
+  }
+  return null;
+}
+
+export function mapMessageRow(row: MessageRow): Message {
+  return {
+    id: row.id,
+    consultationId: row.consultation_id,
+    senderId: row.sender_id,
+    senderRole: row.sender_role,
+    body: row.body ?? null,
+    attachmentPath: row.attachment_path ?? null,
+    attachmentName: row.attachment_name ?? null,
+    attachmentMime: asMessageAttachmentMime(row.attachment_mime ?? null),
+    attachmentSizeBytes: row.attachment_size_bytes ?? null,
+    createdAt: row.created_at,
+    readAt: row.read_at ?? null,
+  };
+}
+
+/** Append a realtime/local message without duplicating by id. */
+export function appendMessageIfNew(messages: Message[], next: Message): Message[] {
+  if (messages.some((m) => m.id === next.id)) return messages;
+  return [...messages, next];
+}
+
+/** Insert or replace a message by id (INSERT + read_at UPDATE from Realtime). */
+export function upsertMessageById(messages: Message[], next: Message): Message[] {
+  const idx = messages.findIndex((m) => m.id === next.id);
+  if (idx === -1) return [...messages, next];
+  const copy = messages.slice();
+  copy[idx] = next;
+  return copy;
+}
+
+/** Receipt label for the sender’s own bubble. */
+export function messageReceiptLabel(message: Pick<Message, 'readAt'>): string {
+  return message.readAt ? 'Seen' : 'Sent';
+}
+
+/** Case-list preview: body text, or a short attachment label. */
+export function messageListPreview(
+  message: Pick<Message, 'body' | 'attachmentName'> | null | undefined
+): string | null {
+  if (!message) return null;
+  const body = message.body?.trim();
+  if (body) return body;
+  const name = message.attachmentName?.trim();
+  if (name) return name;
+  return null;
+}
+
+/** True when MIME is an image we can render inline. */
+export function isImageAttachmentMime(
+  mime: string | null | undefined
+): mime is 'image/jpeg' | 'image/png' {
+  return mime === 'image/jpeg' || mime === 'image/png';
+}
+
+/** Object path: `{consultationId}/{objectId}.{ext}`. */
+export function consultationAttachmentObjectPath(
+  consultationId: string,
+  fileName: string,
+  objectId: string = crypto.randomUUID()
+): string {
+  const rawExt = fileName.includes('.')
+    ? fileName.split('.').pop()?.toLowerCase()
+    : undefined;
+  const safeExt =
+    rawExt === 'pdf' || rawExt === 'png' || rawExt === 'jpeg' || rawExt === 'jpg'
+      ? rawExt === 'jpeg'
+        ? 'jpg'
+        : rawExt
+      : 'bin';
+  return `${consultationId}/${objectId}.${safeExt}`;
+}
+
+/** Normalize browser/OS MIME quirks (e.g. empty type from extension). */
+export function normalizeMessageAttachmentMime(
+  mime: string | null | undefined,
+  fileName: string
+): MessageAttachmentMime | null {
+  const lowered = mime?.toLowerCase().trim() ?? '';
+  if ((MESSAGE_ATTACHMENT_MIME_TYPES as readonly string[]).includes(lowered)) {
+    return lowered as MessageAttachmentMime;
+  }
+  const ext = fileName.includes('.')
+    ? fileName.split('.').pop()?.toLowerCase()
+    : undefined;
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'png') return 'image/png';
+  return null;
+}
+
 /** Map RPC / backend cancel payload. */
 export function mapCancelBookingResult(payload: {
   outcome: string;
@@ -744,4 +1107,85 @@ export function getRoleFromAppMetadata(
 
 export function isStaffRole(role: UserRole | null | undefined): boolean {
   return role === 'doctor' || role === 'admin';
+}
+
+/**
+ * In-app notification kinds (Phase 5 Slice 5.14).
+ * Email delivery can reuse these types later.
+ */
+export type NotificationType =
+  | 'overflow.pending_admin'
+  | 'overflow.accepted'
+  | 'overflow.rejected'
+  | 'overflow.assigned'
+  | 'booking.offline_confirmed'
+  | 'clinic.unpaid'
+  | (string & {});
+
+/** Recipient-facing in-app notification (`notifications` table). */
+export interface AppNotification {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  entityType: string | null;
+  entityId: string | null;
+  metadata: Record<string, unknown>;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface AppNotificationRow {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  body: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  metadata: Record<string, unknown> | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export function mapAppNotificationRow(row: AppNotificationRow): AppNotification {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    type: row.type,
+    title: row.title,
+    body: row.body,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    metadata: row.metadata ?? {},
+    readAt: row.read_at,
+    createdAt: row.created_at,
+  };
+}
+
+/** Deep-link hint for notification taps (apps map to routes). */
+export function notificationHrefHint(notification: AppNotification): {
+  kind: 'overflow' | 'clinic_payments' | 'booking' | 'bookings' | null;
+  bookingId: string | null;
+} {
+  const bookingId =
+    notification.entityType === 'bookings' && notification.entityId
+      ? notification.entityId
+      : null;
+
+  switch (notification.type) {
+    case 'overflow.pending_admin':
+      return { kind: 'overflow', bookingId };
+    case 'clinic.unpaid':
+      return { kind: 'clinic_payments', bookingId };
+    case 'overflow.accepted':
+    case 'overflow.rejected':
+      return { kind: 'booking', bookingId };
+    case 'overflow.assigned':
+    case 'booking.offline_confirmed':
+      return { kind: 'bookings', bookingId };
+    default:
+      return { kind: bookingId ? 'booking' : null, bookingId };
+  }
 }

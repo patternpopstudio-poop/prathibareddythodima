@@ -53,6 +53,10 @@ export async function cancelBookingWithPayment(
     return { ok: false, status: 409, message: 'Booking cannot be cancelled.' };
   }
 
+  if (!booking.slot_id) {
+    return { ok: false, status: 409, message: 'Booking has no slot to cancel.' };
+  }
+
   const { data: slot, error: slotErr } = await admin
     .from('appointment_slots')
     .select('*')

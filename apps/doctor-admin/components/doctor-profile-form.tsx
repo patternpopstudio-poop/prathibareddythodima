@@ -156,6 +156,31 @@ export function DoctorProfileForm({ doctor }: Props) {
       </div>
 
       <div className="space-y-2">
+        <label htmlFor="specialty" className="text-sm font-semibold">
+          Specialty
+        </label>
+        <input
+          id="specialty"
+          value={doctor.specialty}
+          disabled
+          className="w-full rounded-2xl border border-border bg-background/60 px-4 py-3 text-sm text-muted"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label htmlFor="degrees" className="text-sm font-semibold">
+          Degrees
+        </label>
+        <input
+          id="degrees"
+          value={doctor.degrees}
+          disabled
+          className="w-full rounded-2xl border border-border bg-background/60 px-4 py-3 text-sm text-muted"
+        />
+        <p className="text-xs text-muted">Specialty and degrees are managed by admin.</p>
+      </div>
+
+      <div className="space-y-2">
         <label htmlFor="consultationFee" className="text-sm font-semibold">
           Consultation fee
         </label>

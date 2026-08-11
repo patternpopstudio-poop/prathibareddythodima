@@ -27,6 +27,8 @@ const SEED_DOCTORS = [
     email: 'arjun.mehta@demo.teleconsult.local',
     mobile: '+919876540001',
     photoFile: 'doctor-1-arjun-mehta.png',
+    specialty: 'ENT Specialist',
+    degrees: 'MBBS, MS (ENT)',
     consultationFeePaise: 50000, // ₹500
   },
   {
@@ -34,6 +36,8 @@ const SEED_DOCTORS = [
     email: 'priya.nair@demo.teleconsult.local',
     mobile: '+919876540002',
     photoFile: 'doctor-2-priya-nair.png',
+    specialty: 'ENT, Allergy & Vertigo Specialist',
+    degrees: 'MBBS, DLO, MS (ENT)',
     consultationFeePaise: 60000, // ₹600
   },
   {
@@ -41,6 +45,8 @@ const SEED_DOCTORS = [
     email: 'vikram.rao@demo.teleconsult.local',
     mobile: '+919876540003',
     photoFile: 'doctor-3-vikram-rao.png',
+    specialty: 'Otolaryngologist (ENT)',
+    degrees: 'MBBS, MS (ORL)',
     consultationFeePaise: 70000, // ₹700
   },
   {
@@ -48,6 +54,8 @@ const SEED_DOCTORS = [
     email: 'ananya.krishnan@demo.teleconsult.local',
     mobile: '+919876540004',
     photoFile: 'doctor-4-ananya-krishnan.png',
+    specialty: 'Otology & Neurotology',
+    degrees: 'MBBS, MS (ENT), DNB (ENT)',
     consultationFeePaise: 55000, // ₹550
   },
   {
@@ -55,6 +63,8 @@ const SEED_DOCTORS = [
     email: 'suresh.iyer@demo.teleconsult.local',
     mobile: '+919876540005',
     photoFile: 'doctor-5-suresh-iyer.png',
+    specialty: 'Rhinology & Sinus Specialist',
+    degrees: 'MBBS, Diploma in Otorhinolaryngology',
     consultationFeePaise: 45000, // ₹450
   },
   {
@@ -62,6 +72,8 @@ const SEED_DOCTORS = [
     email: 'meera.desai@demo.teleconsult.local',
     mobile: '+919876540006',
     photoFile: 'doctor-6-meera-desai.png',
+    specialty: 'Head & Neck / ENT Specialist',
+    degrees: 'MBBS, MS (ENT), Fellowship in Rhinology',
     consultationFeePaise: 40000, // ₹400
   },
 ] as const;
@@ -168,6 +180,8 @@ async function main() {
         mobile: doctor.mobile,
         photo_url: photoUrl,
         is_active: true,
+        specialty: doctor.specialty,
+        degrees: doctor.degrees,
         consultation_fee_paise: doctor.consultationFeePaise,
       },
       { onConflict: 'id' }

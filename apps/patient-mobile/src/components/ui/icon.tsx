@@ -40,7 +40,8 @@ export type AppIconName =
   | 'heart'
   | 'insurance'
   | 'mail'
-  | 'pin';
+  | 'pin'
+  | 'video';
 
 type IconDef = {
   ios: string;
@@ -84,6 +85,7 @@ const ICONS: Record<AppIconName, IconDef> = {
   insurance: { ios: 'shield.fill', material: 'health-and-safety' },
   mail: { ios: 'envelope.fill', material: 'mail' },
   pin: { ios: 'mappin.and.ellipse', material: 'location-on' },
+  video: { ios: 'video.fill', community: 'video-outline' },
 };
 
 type Props = {

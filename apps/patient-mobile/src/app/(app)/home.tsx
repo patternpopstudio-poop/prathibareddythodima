@@ -1,3 +1,4 @@
+import type { AppNotification, ConsultationMode } from '@teleconsult/shared-types';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { router, type Href } from 'expo-router';
@@ -6,22 +7,41 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'reac
 
 import { AppText } from '@/components/ui/app-text';
 import { DoctorAvatar } from '@/components/ui/doctor-avatar';
-import { Icon } from '@/components/ui/icon';
+import { Icon, type AppIconName } from '@/components/ui/icon';
 import { InitialsAvatar } from '@/components/ui/initials-avatar';
 import { Screen } from '@/components/ui/screen';
-import { CLINIC, EXPLORE_CARE, QUICK_ACTIONS } from '@/constants/clinic';
+import { EXPLORE_CARE, QUICK_ACTIONS } from '@/constants/clinic';
 import { BrandImages } from '@/constants/images';
-import { Colors, FontFamily, Radius, Shadow, Spacing } from '@/constants/theme';
+import { Colors, Radius, Shadow, Spacing } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { fetchNextUpcomingBooking, type UpcomingBooking } from '@/lib/bookings';
+import {
+  consultationModeLabel,
+  consultationModeSpecialtyLabel,
+  consultationModeSubtitle,
+} from '@/lib/consultation-mode';
+import { fetchNotifications, markNotificationsRead } from '@/lib/notifications';
 import { getFirstName } from '@/lib/patient-display';
 import { formatSlotShortDate, formatSlotTimeLabel } from '@/lib/slot-display';
+
+const BOOK_MODES: {
+  mode: ConsultationMode;
+  icon: AppIconName;
+}[] = [
+  { mode: 'online', icon: 'video' },
+  { mode: 'offline', icon: 'hospital' },
+];
+
+function pushBook(mode: ConsultationMode) {
+  router.push({ pathname: '/(app)/book', params: { mode } });
+}
 
 export default function HomeScreen() {
   const { patient } = useAuth();
   const firstName = getFirstName(patient?.fullName);
   const [upcoming, setUpcoming] = useState<UpcomingBooking | null>(null);
   const [apptLoading, setApptLoading] = useState(true);
+  const [alerts, setAlerts] = useState<AppNotification[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -37,6 +57,13 @@ export default function HomeScreen() {
         .finally(() => {
           if (active) setApptLoading(false);
         });
+      void fetchNotifications({ unreadOnly: true, limit: 3 })
+        .then((rows) => {
+          if (active) setAlerts(rows);
+        })
+        .catch(() => {
+          if (active) setAlerts([]);
+        });
       return () => {
         active = false;
       };
@@ -49,12 +76,23 @@ export default function HomeScreen() {
         <AppText variant="eyebrow" style={styles.brand}>
           TELECONSULT
         </AppText>
-        <InitialsAvatar
-          name={patient?.fullName}
-          size={44}
-          accessibilityLabel="Open profile"
-          onPress={() => router.push('/(app)/profile')}
-        />
+        <View style={styles.topActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open notifications"
+            hitSlop={8}
+            onPress={() => router.push('/(app)/notifications' as Href)}
+            style={({ pressed }) => [styles.bellBtn, pressed && styles.pressed]}>
+            <Icon name="mail" size={20} color={Colors.primary900} />
+            {alerts.length > 0 ? <View style={styles.bellDot} /> : null}
+          </Pressable>
+          <InitialsAvatar
+            name={patient?.fullName}
+            size={44}
+            accessibilityLabel="Open profile"
+            onPress={() => router.push('/(app)/profile')}
+          />
+        </View>
       </View>
 
       <View style={styles.greeting}>
@@ -66,38 +104,76 @@ export default function HomeScreen() {
         </AppText>
       </View>
 
-      <View style={styles.bookCard}>
-        <View style={styles.bookCopy}>
-          <View style={styles.startBadge}>
-            <AppText variant="label" style={styles.startBadgeText}>
-              ✨ START HERE
-            </AppText>
-          </View>
+      {alerts.length > 0 ? (
+        <View style={styles.alertBlock}>
+          {alerts.map((alert) => (
+            <Pressable
+              key={alert.id}
+              accessibilityRole="button"
+              onPress={() => {
+                void markNotificationsRead([alert.id]).catch(() => undefined);
+                setAlerts((prev) => prev.filter((n) => n.id !== alert.id));
+                if (alert.entityType === 'bookings' && alert.entityId) {
+                  router.push(
+                    `/(app)/booking-confirmed?id=${alert.entityId}` as Href
+                  );
+                  return;
+                }
+                router.push('/(app)/notifications' as Href);
+              }}
+              style={({ pressed }) => [styles.alertCard, pressed && styles.pressed]}>
+              <View style={styles.alertCopy}>
+                <AppText variant="bodyMedium" style={styles.alertTitle}>
+                  {alert.title}
+                </AppText>
+                <AppText variant="muted" style={styles.alertBody} numberOfLines={2}>
+                  {alert.body}
+                </AppText>
+              </View>
+              <Icon name="chevron" size={18} color={Colors.gray400} />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      <View style={styles.bookSection}>
+        <View style={styles.bookSectionHead}>
+          <AppText variant="label" style={styles.startBadgeText}>
+            START HERE
+          </AppText>
           <AppText variant="h3" style={styles.bookTitle}>
             Book a consultation
           </AppText>
           <AppText variant="muted" style={styles.bookSub}>
-            {CLINIC.tagline}
+            Choose online chat or an in-clinic visit.
           </AppText>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Book now"
-            onPress={() => router.push('/(app)/book')}
-            style={({ pressed }) => [styles.bookBtn, pressed && styles.pressed]}>
-            <AppText variant="bodyMedium" style={styles.bookBtnLabel}>
-              Book now
-            </AppText>
-            <View style={styles.bookBtnArrow}>
-              <Icon name="chevron" size={16} color={Colors.primary900} />
-            </View>
-          </Pressable>
         </View>
-        <Image
-          source={BrandImages.bookConsultHero}
-          style={styles.bookArt}
-          contentFit="contain"
-          transition={0}
-        />
+        <View style={styles.modeRow}>
+          {BOOK_MODES.map(({ mode, icon }) => (
+            <Pressable
+              key={mode}
+              accessibilityRole="button"
+              accessibilityLabel={`Book ${consultationModeLabel(mode).toLowerCase()} consultation`}
+              onPress={() => pushBook(mode)}
+              style={({ pressed }) => [styles.modeCard, pressed && styles.pressed]}>
+              <View style={styles.modeIconWrap}>
+                <Icon name={icon} size={22} color={Colors.primary900} />
+              </View>
+              <AppText variant="bodyMedium" style={styles.modeTitle}>
+                {consultationModeLabel(mode)}
+              </AppText>
+              <AppText variant="muted" style={styles.modeSub} numberOfLines={2}>
+                {consultationModeSubtitle(mode)}
+              </AppText>
+              <View style={styles.modeCta}>
+                <AppText variant="label" style={styles.modeCtaText}>
+                  Book
+                </AppText>
+                <Icon name="chevron" size={14} color={Colors.primary900} />
+              </View>
+            </Pressable>
+          ))}
+        </View>
       </View>
 
       <View style={styles.sectionHead}>
@@ -134,7 +210,7 @@ export default function HomeScreen() {
                   {upcoming.doctor.fullName || 'Doctor'}
                 </AppText>
                 <AppText variant="muted" style={styles.apptSpecialty}>
-                  Teleconsult
+                  {consultationModeSpecialtyLabel(upcoming.booking.mode)}
                 </AppText>
               </View>
               <Icon name="chevron" size={18} color={Colors.gray400} />
@@ -144,28 +220,43 @@ export default function HomeScreen() {
               <View style={styles.apptMetaItem}>
                 <Icon name="calendar" size={14} color={Colors.gray500} />
                 <AppText variant="muted" style={styles.apptMetaText}>
-                  {formatSlotShortDate(upcoming.slot.startsAt)}
+                  {upcoming.slot
+                    ? formatSlotShortDate(upcoming.slot.startsAt)
+                    : upcoming.booking.preferredStartsAt
+                      ? formatSlotShortDate(upcoming.booking.preferredStartsAt)
+                      : 'Awaiting time'}
                 </AppText>
               </View>
               <View style={styles.apptMetaItem}>
                 <Icon name="clock" size={14} color={Colors.gray500} />
                 <AppText variant="muted" style={styles.apptMetaText}>
-                  {formatSlotTimeLabel(upcoming.slot.startsAt)}
+                  {upcoming.slot
+                    ? formatSlotTimeLabel(upcoming.slot.startsAt)
+                    : upcoming.booking.status === 'pending_admin'
+                      ? 'Awaiting hospital'
+                      : 'Time TBD'}
                 </AppText>
               </View>
             </View>
 
-            <View style={styles.confirmedPill}>
-              <AppText variant="label" style={styles.confirmedText}>
-                Confirmed
-              </AppText>
+            <View style={styles.apptPills}>
+              <View style={styles.modePill}>
+                <AppText variant="label" style={styles.modePillText}>
+                  {consultationModeLabel(upcoming.booking.mode)}
+                </AppText>
+              </View>
+              <View style={styles.confirmedPill}>
+                <AppText variant="label" style={styles.confirmedText}>
+                  Confirmed
+                </AppText>
+              </View>
             </View>
           </View>
         </Pressable>
       ) : (
         <Pressable
           accessibilityRole="button"
-          onPress={() => router.push('/(app)/book')}
+          onPress={() => pushBook('online')}
           style={({ pressed }) => [styles.apptEmpty, pressed && styles.pressed]}>
           <View style={styles.apptEmptyIcon}>
             <Icon name="calendar" size={22} color={Colors.primary900} />
@@ -173,7 +264,7 @@ export default function HomeScreen() {
           <View style={styles.apptEmptyCopy}>
             <AppText variant="bodyMedium">No upcoming appointments</AppText>
             <AppText variant="muted" style={styles.apptSpecialty}>
-              Book a consultation to get started.
+              Pick online or offline above to get started.
             </AppText>
           </View>
           <Icon name="chevron" size={18} color={Colors.gray400} />
@@ -267,6 +358,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  topActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  bellBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary50,
+  },
+  bellDot: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.primary900,
+  },
   brand: {
     letterSpacing: 1.8,
     fontSize: 12,
@@ -274,6 +387,30 @@ const styles = StyleSheet.create({
   greeting: {
     gap: 4,
     marginTop: -Spacing.xs,
+  },
+  alertBlock: {
+    gap: Spacing.sm,
+  },
+  alertCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    borderColor: Colors.primary100,
+    backgroundColor: Colors.primary50,
+  },
+  alertCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  alertTitle: {
+    color: Colors.text,
+  },
+  alertBody: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   hello: {
     fontSize: 28,
@@ -284,29 +421,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
-  bookCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.primary50,
-    borderRadius: Radius.card,
-    paddingVertical: Spacing.lg,
-    paddingLeft: Spacing.lg,
-    paddingRight: Spacing.sm,
-    gap: Spacing.sm,
-    overflow: 'hidden',
-    minHeight: 188,
+  bookSection: {
+    gap: Spacing.md,
   },
-  bookCopy: {
-    flex: 1,
-    gap: Spacing.sm,
-    zIndex: 1,
-  },
-  startBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.white,
-    borderRadius: Radius.pill,
-    paddingHorizontal: Spacing.sm + 2,
-    paddingVertical: 5,
+  bookSectionHead: {
+    gap: 4,
   },
   startBadgeText: {
     color: Colors.primary900,
@@ -320,37 +439,67 @@ const styles = StyleSheet.create({
   bookSub: {
     fontSize: 13,
     lineHeight: 18,
-    maxWidth: 180,
   },
-  bookBtn: {
-    alignSelf: 'flex-start',
-    marginTop: Spacing.xs,
-    minHeight: 44,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.primary900,
-    paddingLeft: Spacing.lg,
-    paddingRight: 6,
+  modeRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: Spacing.sm,
   },
-  bookBtnLabel: {
-    color: Colors.white,
-    fontFamily: FontFamily.label,
-    fontSize: 15,
+  modeCard: {
+    flex: 1,
+    backgroundColor: Colors.primary50,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    borderColor: Colors.primary100,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+    minHeight: 168,
   },
-  bookBtnArrow: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  modeIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: Colors.white,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bookArt: {
-    width: 128,
-    height: 128,
-    marginRight: -Spacing.xs,
+  modeTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    color: Colors.text,
+  },
+  modeSub: {
+    fontSize: 12,
+    lineHeight: 16,
+    flexGrow: 1,
+  },
+  modeCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    marginTop: Spacing.xs,
+  },
+  modeCtaText: {
+    color: Colors.primary900,
+    fontSize: 12,
+  },
+  apptPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+  },
+  modePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.white,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: 4,
+  },
+  modePillText: {
+    color: Colors.gray600,
+    letterSpacing: 0,
+    fontSize: 11,
   },
   sectionHead: {
     flexDirection: 'row',

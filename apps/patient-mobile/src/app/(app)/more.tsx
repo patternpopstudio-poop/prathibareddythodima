@@ -17,6 +17,12 @@ const LINKS: {
   href: Href;
 }[] = [
   {
+    title: 'Notifications',
+    subtitle: 'Offline requests and hospital updates',
+    icon: 'mail',
+    href: '/(app)/notifications',
+  },
+  {
     title: 'Prescriptions',
     subtitle: 'View issued prescriptions',
     icon: 'medication',

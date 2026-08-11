@@ -103,6 +103,18 @@ export default function AppLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="consultation/[id]"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

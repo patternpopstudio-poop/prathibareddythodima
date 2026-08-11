@@ -124,7 +124,9 @@ export function SlotsCalendar({ slots, busy = false, onDeleteSlot }: Props) {
 
   if (slots.length === 0) {
     return (
-      <p className="text-sm text-muted">No open slots yet. Generate from weekly hours above.</p>
+      <div className="rounded-2xl bg-background px-4 py-6 text-sm text-muted">
+        No open slots yet. Generate from weekly hours above.
+      </div>
     );
   }
 
@@ -228,7 +230,7 @@ export function SlotsCalendar({ slots, busy = false, onDeleteSlot }: Props) {
           {periodSlots.map((slot) => (
             <div
               key={slot.id}
-              className="flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2.5"
+              className="flex items-center justify-between gap-2 rounded-2xl border border-border/70 bg-background px-3 py-2.5"
             >
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-foreground">

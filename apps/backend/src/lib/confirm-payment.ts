@@ -2,7 +2,21 @@ import type { Booking, BookingRow, Payment, PaymentRow } from '@teleconsult/shar
 import { mapBookingRow, mapPaymentRow } from '@teleconsult/shared-types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { ensureConsultationForBooking } from './create-consultation.js';
 import { requestManualRefund } from './refund-payment.js';
+
+/** Best-effort: open chat for a confirmed booking (trigger + idempotent RPC). */
+async function openConsultationForConfirmedBooking(
+  admin: SupabaseClient,
+  bookingId: string
+): Promise<void> {
+  const opened = await ensureConsultationForBooking(admin, bookingId);
+  if (!opened.ok) {
+    console.error(
+      `[confirm-payment] ensure consultation failed for booking ${bookingId}: ${opened.message}`
+    );
+  }
+}
 
 export type ConfirmPaymentInput = {
   paymentId: string;
@@ -57,10 +71,14 @@ export async function confirmBookingPayment(
     if (!bookingRow) {
       return { ok: false, status: 404, message: 'Booking not found.' };
     }
+    const booking = bookingRow as BookingRow;
+    if (booking.status === 'confirmed') {
+      await openConsultationForConfirmedBooking(admin, booking.id);
+    }
     return {
       ok: true,
       alreadyPaid: true,
-      booking: mapBookingRow(bookingRow as BookingRow),
+      booking: mapBookingRow(booking),
       payment: mapPaymentRow(payment),
     };
   }
@@ -133,6 +151,7 @@ export async function confirmBookingPayment(
 
   if (booking.status !== 'pending_payment') {
     if (booking.status === 'confirmed' && booking.payment_status === 'paid') {
+      await openConsultationForConfirmedBooking(admin, booking.id);
       return {
         ok: true,
         alreadyPaid: true,
@@ -229,6 +248,9 @@ export async function confirmBookingPayment(
       },
     },
   ]);
+
+  // Trigger on bookings.status → confirmed also opens chat; call again for heal/idempotency.
+  await openConsultationForConfirmedBooking(admin, booking.id);
 
   return {
     ok: true,

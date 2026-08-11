@@ -1,7 +1,7 @@
 import {
-    BOOKING_CANCEL_CUTOFF_HOURS,
-    BOOKING_PAYMENT_HOLD_MINUTES,
-    formatInrFromPaise,
+  BOOKING_CANCEL_CUTOFF_HOURS,
+  BOOKING_PAYMENT_HOLD_MINUTES,
+  formatInrFromPaise,
 } from '@teleconsult/shared-types';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -16,11 +16,12 @@ import { Icon } from '@/components/ui/icon';
 import { Screen } from '@/components/ui/screen';
 import { Colors, Radius, Shadow, Spacing } from '@/constants/theme';
 import { fetchBookingById, type UpcomingBooking } from '@/lib/bookings';
+import { consultationModeLabel } from '@/lib/consultation-mode';
 import { completeBookingPayment } from '@/lib/payments';
 import {
-    formatSlotDayLabel,
-    formatSlotShortDate,
-    formatSlotTimeRange,
+  formatSlotDayLabel,
+  formatSlotShortDate,
+  formatSlotTimeRange,
 } from '@/lib/slot-display';
 
 export default function BookingConfirmedScreen() {
@@ -44,7 +45,13 @@ export default function BookingConfirmedScreen() {
     try {
       const row = await fetchBookingById(bookingId);
       const status = row?.booking.status;
-      if (!row || (status !== 'confirmed' && status !== 'pending_payment')) {
+      if (
+        !row ||
+        (status !== 'confirmed' &&
+          status !== 'pending_payment' &&
+          status !== 'pending_admin' &&
+          status !== 'rejected')
+      ) {
         setItem(null);
         setError(
           status === 'cancelled'
@@ -65,7 +72,16 @@ export default function BookingConfirmedScreen() {
     void load();
   }, [load]);
 
+  const pendingAdmin = item?.booking.status === 'pending_admin';
+  const rejected = item?.booking.status === 'rejected';
   const pendingPayment = item?.booking.status === 'pending_payment';
+  const clinicPayUnpaid =
+    item?.booking.status === 'confirmed' &&
+    item.booking.paymentMethod === 'clinic' &&
+    item.booking.paymentStatus === 'unpaid';
+  const clinicPayPaid =
+    item?.booking.paymentMethod === 'clinic' &&
+    item.booking.paymentStatus === 'paid';
   const willRefund =
     item?.booking.status === 'confirmed' && item.booking.paymentStatus === 'paid';
   const feeLabel =
@@ -74,6 +90,9 @@ export default function BookingConfirmedScreen() {
       : item
         ? formatInrFromPaise(item.doctor.consultationFeePaise)
         : null;
+  const whenStartsAt =
+    item?.slot?.startsAt ?? item?.booking.preferredStartsAt ?? null;
+  const whenEndsAt = item?.slot?.endsAt ?? item?.booking.preferredEndsAt ?? null;
 
   const onPay = useCallback(async () => {
     if (!bookingId || paying) return;
@@ -121,24 +140,56 @@ export default function BookingConfirmedScreen() {
             <View
               style={[
                 styles.checkBadge,
-                pendingPayment && styles.checkBadgePending,
+                (pendingPayment || clinicPayUnpaid || pendingAdmin || rejected) &&
+                  styles.checkBadgePending,
               ]}>
               <Icon
-                name={pendingPayment ? 'lock' : 'check'}
+                name={
+                  rejected
+                    ? 'hospital'
+                    : pendingPayment || clinicPayUnpaid || pendingAdmin
+                      ? 'lock'
+                      : 'check'
+                }
                 size={28}
                 color={Colors.white}
               />
             </View>
             <AppText variant="eyebrow" style={styles.eyebrow}>
-              {pendingPayment ? 'PAYMENT REQUIRED' : 'BOOKING CONFIRMED'}
+              {rejected
+                ? 'REQUEST DECLINED'
+                : pendingAdmin
+                  ? 'AWAITING HOSPITAL'
+                  : pendingPayment
+                    ? 'PAYMENT REQUIRED'
+                    : clinicPayUnpaid
+                      ? 'PAY AT CLINIC'
+                      : 'BOOKING CONFIRMED'}
             </AppText>
             <AppText variant="h2" style={styles.title}>
-              {pendingPayment ? 'Slot reserved' : "You're all set"}
+              {rejected
+                ? 'Could not schedule'
+                : pendingAdmin
+                  ? 'Request submitted'
+                  : pendingPayment
+                    ? 'Slot reserved'
+                    : clinicPayUnpaid
+                      ? 'Visit confirmed'
+                      : "You're all set"}
             </AppText>
             <AppText variant="muted" style={styles.subtitle}>
-              {pendingPayment
-                ? `Complete payment within ${BOOKING_PAYMENT_HOLD_MINUTES} minutes to confirm your consultation. You can cancel anytime to release the slot.`
-                : 'Your consultation is reserved. The doctor can see this booking on their schedule.'}
+              {rejected
+                ? item.booking.rejectReason ||
+                  'The hospital could not assign an offline appointment. Please try another doctor or time.'
+                : pendingAdmin
+                  ? 'The hospital will review your preferred window and confirm a time. You will see the update here once assigned.'
+                  : pendingPayment
+                    ? `Complete payment within ${BOOKING_PAYMENT_HOLD_MINUTES} minutes to confirm your consultation. You can cancel anytime to release the slot.`
+                    : clinicPayUnpaid
+                      ? 'Your in-clinic appointment is confirmed. Please pay at the hospital when you arrive — the front desk will mark it paid.'
+                      : clinicPayPaid
+                        ? "Payment received at the clinic. Your consultation is on the doctor's schedule."
+                        : 'Your consultation is reserved. The doctor can see this booking on their schedule.'}
             </AppText>
           </View>
 
@@ -156,15 +207,27 @@ export default function BookingConfirmedScreen() {
                 <View
                   style={[
                     styles.confirmedPill,
-                    pendingPayment && styles.pendingPill,
+                    (pendingPayment || clinicPayUnpaid || pendingAdmin || rejected) &&
+                      styles.pendingPill,
                   ]}>
                   <AppText
                     variant="label"
                     style={[
                       styles.confirmedText,
-                      pendingPayment && styles.pendingText,
+                      (pendingPayment || clinicPayUnpaid || pendingAdmin || rejected) &&
+                        styles.pendingText,
                     ]}>
-                    {pendingPayment ? 'Awaiting payment' : 'Confirmed'}
+                    {rejected
+                      ? 'Declined'
+                      : pendingAdmin
+                        ? 'Awaiting hospital'
+                        : pendingPayment
+                          ? 'Awaiting payment'
+                          : clinicPayUnpaid
+                            ? 'Pay at clinic'
+                            : clinicPayPaid
+                              ? 'Paid at clinic'
+                              : 'Confirmed'}
                   </AppText>
                 </View>
               </View>
@@ -172,27 +235,58 @@ export default function BookingConfirmedScreen() {
 
             <View style={styles.metaBlock}>
               <View style={styles.metaRow}>
-                <Icon name="calendar" size={18} color={Colors.primary900} />
+                <Icon
+                  name={item.booking.mode === 'offline' ? 'hospital' : 'video'}
+                  size={18}
+                  color={Colors.primary900}
+                />
                 <View style={styles.metaText}>
                   <AppText variant="muted" style={styles.metaLabel}>
-                    Date
+                    Type
                   </AppText>
                   <AppText variant="bodyMedium">
-                    {formatSlotDayLabel(item.slot.startsAt)}
+                    {consultationModeLabel(item.booking.mode)}
+                    {item.booking.mode === 'offline' ? ' · In-clinic' : ' · Chat'}
                   </AppText>
                 </View>
               </View>
-              <View style={styles.metaRow}>
-                <Icon name="clock" size={18} color={Colors.primary900} />
-                <View style={styles.metaText}>
-                  <AppText variant="muted" style={styles.metaLabel}>
-                    Time
-                  </AppText>
-                  <AppText variant="bodyMedium">
-                    {formatSlotTimeRange(item.slot.startsAt, item.slot.endsAt)}
-                  </AppText>
+              {whenStartsAt ? (
+                <View style={styles.metaRow}>
+                  <Icon name="calendar" size={18} color={Colors.primary900} />
+                  <View style={styles.metaText}>
+                    <AppText variant="muted" style={styles.metaLabel}>
+                      {pendingAdmin || (!item.slot && rejected) ? 'Preferred date' : 'Date'}
+                    </AppText>
+                    <AppText variant="bodyMedium">
+                      {formatSlotDayLabel(whenStartsAt)}
+                    </AppText>
+                  </View>
                 </View>
-              </View>
+              ) : null}
+              {whenStartsAt && whenEndsAt ? (
+                <View style={styles.metaRow}>
+                  <Icon name="clock" size={18} color={Colors.primary900} />
+                  <View style={styles.metaText}>
+                    <AppText variant="muted" style={styles.metaLabel}>
+                      {pendingAdmin || (!item.slot && rejected) ? 'Preferred window' : 'Time'}
+                    </AppText>
+                    <AppText variant="bodyMedium">
+                      {formatSlotTimeRange(whenStartsAt, whenEndsAt)}
+                    </AppText>
+                  </View>
+                </View>
+              ) : null}
+              {item.booking.preferredNote && (pendingAdmin || rejected) ? (
+                <View style={styles.metaRow}>
+                  <Icon name="notes" size={18} color={Colors.primary900} />
+                  <View style={styles.metaText}>
+                    <AppText variant="muted" style={styles.metaLabel}>
+                      Note
+                    </AppText>
+                    <AppText variant="bodyMedium">{item.booking.preferredNote}</AppText>
+                  </View>
+                </View>
+              ) : null}
               {feeLabel ? (
                 <View style={styles.metaRow}>
                   <Icon name="lock" size={18} color={Colors.primary900} />
@@ -206,18 +300,35 @@ export default function BookingConfirmedScreen() {
               ) : null}
             </View>
 
-            {pendingPayment ? (
+            {pendingAdmin ? (
+              <AppText variant="muted" style={styles.footnote}>
+                No slot is reserved yet. If the hospital cannot place you, this request will be
+                declined with a reason.
+              </AppText>
+            ) : rejected ? (
+              <AppText variant="muted" style={styles.footnote}>
+                You can submit a new request from the doctor’s offline booking page when no slots
+                are open.
+              </AppText>
+            ) : pendingPayment ? (
               <AppText variant="muted" style={styles.footnote}>
                 Cancel anytime before paying to free the slot. Holds expire after{' '}
                 {BOOKING_PAYMENT_HOLD_MINUTES} minutes if unpaid.
               </AppText>
-            ) : (
+            ) : clinicPayUnpaid && whenStartsAt ? (
               <AppText variant="muted" style={styles.footnote}>
-                Free online cancel (with refund) until {BOOKING_CANCEL_CUTOFF_HOURS} hours before{' '}
-                {formatSlotShortDate(item.slot.startsAt)}. After that, contact the hospital — no
+                No online payment needed. Bring {feeLabel ?? 'the consultation fee'} when you
+                visit. Free cancel until {BOOKING_CANCEL_CUTOFF_HOURS} hours before{' '}
+                {formatSlotShortDate(whenStartsAt)}.
+              </AppText>
+            ) : whenStartsAt ? (
+              <AppText variant="muted" style={styles.footnote}>
+                Free online cancel
+                {willRefund ? ' (with refund)' : ''} until {BOOKING_CANCEL_CUTOFF_HOURS} hours
+                before {formatSlotShortDate(whenStartsAt)}. After that, contact the hospital — no
                 automatic refund.
               </AppText>
-            )}
+            ) : null}
 
             {pendingPayment ? (
               <Button
@@ -228,20 +339,22 @@ export default function BookingConfirmedScreen() {
               />
             ) : null}
 
-            <BookingCancelButton
-              bookingId={item.booking.id}
-              slotStartsAt={item.slot.startsAt}
-              cancelRequested={Boolean(item.booking.cancelRequestAt)}
-              willRefund={willRefund}
-              pendingPayment={pendingPayment}
-              onDone={(result) => {
-                if (result.outcome === 'cancelled') {
-                  router.replace('/(app)/book');
-                } else {
-                  void load();
-                }
-              }}
-            />
+            {item.slot && !pendingAdmin && !rejected ? (
+              <BookingCancelButton
+                bookingId={item.booking.id}
+                slotStartsAt={item.slot.startsAt}
+                cancelRequested={Boolean(item.booking.cancelRequestAt)}
+                willRefund={willRefund}
+                pendingPayment={pendingPayment}
+                onDone={(result) => {
+                  if (result.outcome === 'cancelled') {
+                    router.replace('/(app)/book');
+                  } else {
+                    void load();
+                  }
+                }}
+              />
+            ) : null}
           </View>
 
           <Button

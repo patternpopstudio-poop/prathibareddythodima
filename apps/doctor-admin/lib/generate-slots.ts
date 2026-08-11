@@ -1,10 +1,84 @@
-import type { DoctorAvailability } from '@teleconsult/shared-types';
+import type { ConsultationMode, DoctorAvailability } from '@teleconsult/shared-types';
+import { consultationModeLabel } from '@teleconsult/shared-types';
 
 export type GeneratedSlotDraft = {
   availabilityId: string;
+  mode: ConsultationMode;
   startsAt: string;
   endsAt: string;
 };
+
+/** Half-open overlap matching `tstzrange(starts_at, ends_at, '[)')`. */
+export function slotRangesOverlap(
+  aStartsAt: string,
+  aEndsAt: string,
+  bStartsAt: string,
+  bEndsAt: string
+): boolean {
+  const aStart = new Date(aStartsAt).getTime();
+  const aEnd = new Date(aEndsAt).getTime();
+  const bStart = new Date(bStartsAt).getTime();
+  const bEnd = new Date(bEndsAt).getTime();
+  return aStart < bEnd && bStart < aEnd;
+}
+
+export type ExistingSlotForConflict = {
+  startsAt: string;
+  endsAt: string;
+  mode: ConsultationMode;
+};
+
+/**
+ * Find the first existing non-cancelled slot that overlaps a draft.
+ * Exact same start + mode is treated as "already exists" (caller skips), not a conflict.
+ */
+export function findOverlappingSlot(
+  draft: Pick<GeneratedSlotDraft, 'startsAt' | 'endsAt' | 'mode'>,
+  existing: ExistingSlotForConflict[]
+): ExistingSlotForConflict | null {
+  const draftStart = new Date(draft.startsAt).getTime();
+  for (const slot of existing) {
+    const sameStart = new Date(slot.startsAt).getTime() === draftStart;
+    if (sameStart && slot.mode === draft.mode) continue;
+    if (slotRangesOverlap(draft.startsAt, draft.endsAt, slot.startsAt, slot.endsAt)) {
+      return slot;
+    }
+  }
+  return null;
+}
+
+export function formatSlotConflictMessage(
+  draft: Pick<GeneratedSlotDraft, 'startsAt' | 'endsAt' | 'mode'>,
+  conflicting: ExistingSlotForConflict
+): string {
+  return (
+    `Cannot create ${consultationModeLabel(draft.mode).toLowerCase()} slot ` +
+    `${formatSlotRange(draft.startsAt, draft.endsAt)} — overlaps an existing ` +
+    `${consultationModeLabel(conflicting.mode).toLowerCase()} slot ` +
+    `${formatSlotRange(conflicting.startsAt, conflicting.endsAt)}.`
+  );
+}
+
+/** Map Postgres exclusion / constraint errors to a doctor-facing message. */
+export function formatSlotInsertError(err: unknown, fallback: string): string {
+  const msg =
+    err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+      ? err.message
+      : err instanceof Error
+        ? err.message
+        : '';
+  if (
+    msg.includes('appointment_slots_no_overlap') ||
+    msg.includes('appointment_slots_doctor_starts_unique') ||
+    msg.includes('exclusion') ||
+    msg.includes('duplicate key') ||
+    msg.includes('23P01') ||
+    msg.includes('23505')
+  ) {
+    return 'That time overlaps another online or offline slot. Choose a free window.';
+  }
+  return msg || fallback;
+}
 
 /** Parse `HH:mm` or `HH:mm:ss` to minutes from midnight. */
 export function parseTimeToMinutes(value: string): number {
@@ -78,6 +152,7 @@ export function generateSlotsFromRules(
 
         drafts.push({
           availabilityId: rule.id,
+          mode: rule.mode,
           startsAt,
           endsAt,
         });

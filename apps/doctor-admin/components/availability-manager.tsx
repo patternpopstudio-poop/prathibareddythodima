@@ -1,23 +1,37 @@
 'use client';
 
-import type { AppointmentSlot, DayOfWeek, DoctorAvailability } from '@teleconsult/shared-types';
-import { mapAppointmentSlotRow, mapDoctorAvailabilityRow } from '@teleconsult/shared-types';
+import type {
+  AppointmentSlot,
+  ConsultationMode,
+  DayOfWeek,
+  DoctorAvailability,
+} from '@teleconsult/shared-types';
+import {
+  consultationModeLabel,
+  mapAppointmentSlotRow,
+  mapDoctorAvailabilityRow,
+} from '@teleconsult/shared-types';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 
 import { SlotsCalendar } from '@/components/slots-calendar';
 import {
   DAY_OF_WEEK_LABELS,
+  findOverlappingSlot,
+  formatSlotConflictMessage,
+  formatSlotInsertError,
   formatTimeLabel,
   generateSlotsFromRules,
   parseDateInputValue,
   parseTimeToMinutes,
   toDateInputValue,
+  type ExistingSlotForConflict,
 } from '@/lib/generate-slots';
 import { createClient } from '@/lib/supabase/client';
 
 type Props = {
   doctorId: string;
+  mode: ConsultationMode;
   initialRules: DoctorAvailability[];
   initialSlots: AppointmentSlot[];
 };
@@ -33,7 +47,12 @@ function defaultGenerateUntil(): string {
   return toDateInputValue(d);
 }
 
-export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Props) {
+export function AvailabilityManager({
+  doctorId,
+  mode,
+  initialRules,
+  initialSlots,
+}: Props) {
   const router = useRouter();
   const [rules, setRules] = useState(initialRules);
   const [slots, setSlots] = useState(initialSlots);
@@ -51,6 +70,9 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
   const [manualDate, setManualDate] = useState('');
   const [manualStart, setManualStart] = useState('10:00');
   const [manualDuration, setManualDuration] = useState(15);
+
+  const modeLabel = consultationModeLabel(mode);
+  const modeLower = modeLabel.toLowerCase();
 
   const sortedRules = useMemo(
     () =>
@@ -73,12 +95,14 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
           .from('doctor_availability')
           .select('*')
           .eq('doctor_id', doctorId)
+          .eq('mode', mode)
           .order('day_of_week', { ascending: true })
           .order('start_time', { ascending: true }),
         supabase
           .from('appointment_slots')
           .select('*')
           .eq('doctor_id', doctorId)
+          .eq('mode', mode)
           .eq('status', 'open')
           .gt('starts_at', new Date().toISOString())
           .order('starts_at', { ascending: true })
@@ -91,6 +115,29 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
     setRules((ruleRows ?? []).map(mapDoctorAvailabilityRow));
     setSlots((slotRows ?? []).map(mapAppointmentSlotRow));
     router.refresh();
+  }
+
+  async function fetchExistingSlotsInRange(
+    rangeStart: string,
+    rangeEnd: string
+  ): Promise<ExistingSlotForConflict[]> {
+    const supabase = createClient();
+    // Overlap with [rangeStart, rangeEnd]: starts_at < rangeEnd AND ends_at > rangeStart
+    const { data, error: fetchError } = await supabase
+      .from('appointment_slots')
+      .select('starts_at, ends_at, mode')
+      .eq('doctor_id', doctorId)
+      .neq('status', 'cancelled')
+      .lt('starts_at', rangeEnd)
+      .gt('ends_at', rangeStart);
+
+    if (fetchError) throw fetchError;
+
+    return (data ?? []).map((row) => ({
+      startsAt: row.starts_at as string,
+      endsAt: row.ends_at as string,
+      mode: (row.mode === 'offline' ? 'offline' : 'online') as ConsultationMode,
+    }));
   }
 
   async function onAddRule(event: React.FormEvent) {
@@ -114,10 +161,11 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
         slot_duration_minutes: duration,
         buffer_minutes: buffer,
         is_active: true,
+        mode,
       });
       if (insertError) throw insertError;
 
-      setMessage('Weekly hours saved.');
+      setMessage(`${modeLabel} weekly hours saved.`);
       await refreshFromServer();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save weekly hours.');
@@ -135,7 +183,8 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
         .from('doctor_availability')
         .delete()
         .eq('id', ruleId)
-        .eq('doctor_id', doctorId);
+        .eq('doctor_id', doctorId)
+        .eq('mode', mode);
       if (deleteError) throw deleteError;
       setMessage('Weekly hours removed.');
       await refreshFromServer();
@@ -151,7 +200,9 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
     setBusy(true);
     try {
       if (rules.filter((r) => r.isActive).length === 0) {
-        throw new Error('Add at least one weekly hours rule before generating slots.');
+        throw new Error(
+          `Add at least one ${modeLower} weekly hours rule before generating slots.`
+        );
       }
 
       const untilDate = parseDateInputValue(generateUntil);
@@ -168,45 +219,56 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
         );
       }
 
-      const supabase = createClient();
-      const rangeStart = drafts[0]!.startsAt;
-      const rangeEnd = drafts[drafts.length - 1]!.endsAt;
-
-      const { data: existing, error: existingError } = await supabase
-        .from('appointment_slots')
-        .select('starts_at')
-        .eq('doctor_id', doctorId)
-        .neq('status', 'cancelled')
-        .gte('starts_at', rangeStart)
-        .lte('starts_at', rangeEnd);
-
-      if (existingError) throw existingError;
-
-      const existingStarts = new Set(
-        (existing ?? []).map((row) => new Date(row.starts_at as string).getTime())
+      const rangeStart = drafts.reduce(
+        (min, d) => (d.startsAt < min ? d.startsAt : min),
+        drafts[0]!.startsAt
       );
-      const toInsert = drafts
-        .filter((d) => !existingStarts.has(new Date(d.startsAt).getTime()))
-        .map((d) => ({
+      const rangeEnd = drafts.reduce(
+        (max, d) => (d.endsAt > max ? d.endsAt : max),
+        drafts[0]!.endsAt
+      );
+
+      const existing = await fetchExistingSlotsInRange(rangeStart, rangeEnd);
+      const existingSameModeStarts = new Set(
+        existing
+          .filter((s) => s.mode === mode)
+          .map((s) => new Date(s.startsAt).getTime())
+      );
+
+      const toInsert = [];
+      for (const draft of drafts) {
+        if (existingSameModeStarts.has(new Date(draft.startsAt).getTime())) {
+          continue;
+        }
+        const conflict = findOverlappingSlot(draft, existing);
+        if (conflict) {
+          throw new Error(formatSlotConflictMessage(draft, conflict));
+        }
+        toInsert.push({
           doctor_id: doctorId,
-          availability_id: d.availabilityId,
-          starts_at: d.startsAt,
-          ends_at: d.endsAt,
+          availability_id: draft.availabilityId,
+          starts_at: draft.startsAt,
+          ends_at: draft.endsAt,
           status: 'open' as const,
-        }));
+          mode,
+        });
+      }
 
       if (toInsert.length === 0) {
-        setMessage('All generated slots already exist for that period.');
+        setMessage(`All generated ${modeLower} slots already exist for that period.`);
         return;
       }
 
+      const supabase = createClient();
       const { error: insertError } = await supabase.from('appointment_slots').insert(toInsert);
       if (insertError) throw insertError;
 
-      setMessage(`Created ${toInsert.length} open slot${toInsert.length === 1 ? '' : 's'}.`);
+      setMessage(
+        `Created ${toInsert.length} open ${modeLower} slot${toInsert.length === 1 ? '' : 's'}.`
+      );
       await refreshFromServer();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not generate slots.');
+      setError(formatSlotInsertError(err, 'Could not generate slots.'));
     } finally {
       setBusy(false);
     }
@@ -229,19 +291,28 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
 
       if (starts <= new Date()) throw new Error('Slot must start in the future.');
 
+      const startsAt = starts.toISOString();
+      const endsAt = ends.toISOString();
+      const existing = await fetchExistingSlotsInRange(startsAt, endsAt);
+      const conflict = findOverlappingSlot({ startsAt, endsAt, mode }, existing);
+      if (conflict) {
+        throw new Error(formatSlotConflictMessage({ startsAt, endsAt, mode }, conflict));
+      }
+
       const supabase = createClient();
       const { error: insertError } = await supabase.from('appointment_slots').insert({
         doctor_id: doctorId,
-        starts_at: starts.toISOString(),
-        ends_at: ends.toISOString(),
+        starts_at: startsAt,
+        ends_at: endsAt,
         status: 'open',
+        mode,
       });
       if (insertError) throw insertError;
 
-      setMessage('Open slot added.');
+      setMessage(`Open ${modeLower} slot added.`);
       await refreshFromServer();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not add slot.');
+      setError(formatSlotInsertError(err, 'Could not add slot.'));
     } finally {
       setBusy(false);
     }
@@ -257,6 +328,7 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
         .delete()
         .eq('id', slotId)
         .eq('doctor_id', doctorId)
+        .eq('mode', mode)
         .eq('status', 'open');
       if (deleteError) throw deleteError;
       setMessage('Open slot removed.');
@@ -268,17 +340,32 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
     }
   }
 
-  return (
-    <div className="space-y-8">
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
-      {message ? <p className="text-sm font-medium text-primary">{message}</p> : null}
+  const panelClass =
+    'space-y-4 rounded-[24px] bg-surface p-5 shadow-[0_4px_20px_rgba(0,0,0,0.05)]';
+  const inputClass =
+    'rounded-xl border border-border/70 bg-background px-3 py-2.5 font-normal outline-none focus:border-primary';
 
-      <section className="space-y-4 rounded-3xl border border-border bg-surface p-6 shadow-sm">
+  return (
+    <div className="space-y-5">
+      {error ? (
+        <div className="rounded-2xl border border-danger/20 bg-red-50 px-4 py-3 text-sm text-danger">
+          {error}
+        </div>
+      ) : null}
+      {message ? (
+        <div className="rounded-2xl border border-primary/20 bg-primary-soft px-4 py-3 text-sm font-medium text-foreground">
+          {message}
+        </div>
+      ) : null}
+
+      <section className={panelClass}>
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">Weekly hours</h2>
+          <h2 className="text-base font-semibold tracking-tight text-foreground">
+            {modeLabel} weekly hours
+          </h2>
           <p className="mt-1 text-sm text-muted">
-            Set recurring windows. Slots are at least 15 minutes; buffer is an optional gap after each
-            slot.
+            Set recurring {modeLower} windows. Slots are at least 15 minutes; buffer is an optional
+            gap after each slot.
           </p>
         </div>
 
@@ -288,7 +375,7 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
             <select
               value={dayOfWeek}
               onChange={(e) => setDayOfWeek(Number(e.target.value) as DayOfWeek)}
-              className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
+              className={inputClass}
             >
               {DAY_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -304,7 +391,7 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
               required
               value={startTime}
               onChange={(e) => setStartTime(e.target.value)}
-              className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
+              className={inputClass}
             />
           </label>
           <label className="flex flex-col gap-1.5 text-sm font-semibold">
@@ -314,7 +401,7 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
               required
               value={endTime}
               onChange={(e) => setEndTime(e.target.value)}
-              className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
+              className={inputClass}
             />
           </label>
           <label className="flex flex-col gap-1.5 text-sm font-semibold">
@@ -326,7 +413,7 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
               required
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
-              className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
+              className={inputClass}
             />
           </label>
           <label className="flex flex-col gap-1.5 text-sm font-semibold">
@@ -338,31 +425,34 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
               required
               value={buffer}
               onChange={(e) => setBuffer(Number(e.target.value))}
-              className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
+              className={inputClass}
             />
           </label>
           <div className="flex items-end sm:col-span-2 lg:col-span-6">
             <button
               type="submit"
               disabled={busy}
-              className="rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
+              className="rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:opacity-60"
             >
-              Add weekly hours
+              Add {modeLower} weekly hours
             </button>
           </div>
         </form>
 
         {sortedRules.length === 0 ? (
-          <p className="text-sm text-muted">No weekly hours yet.</p>
+          <div className="rounded-2xl bg-background px-4 py-6 text-sm text-muted">
+            No {modeLower} weekly hours yet.
+          </div>
         ) : (
-          <ul className="divide-y divide-border rounded-2xl border border-border">
+          <ul className="space-y-3">
             {sortedRules.map((rule) => (
               <li
                 key={rule.id}
-                className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-background px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                style={{ borderLeftWidth: 4, borderLeftColor: 'var(--primary)' }}
               >
                 <div className="text-sm">
-                  <p className="font-semibold">
+                  <p className="font-semibold text-foreground">
                     {DAY_OF_WEEK_LABELS[rule.dayOfWeek]} · {formatTimeLabel(rule.startTime)} –{' '}
                     {formatTimeLabel(rule.endTime)}
                   </p>
@@ -385,12 +475,14 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
         )}
       </section>
 
-      <section className="space-y-4 rounded-3xl border border-border bg-surface p-6 shadow-sm">
+      <section className={panelClass}>
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">Generate open slots</h2>
+          <h2 className="text-base font-semibold tracking-tight text-foreground">
+            Generate {modeLower} open slots
+          </h2>
           <p className="mt-1 text-sm text-muted">
-            Creates bookable slots from your weekly hours through the date you pick (inclusive).
-            Existing times are skipped.
+            Creates bookable {modeLower} slots from your weekly hours through the date you pick
+            (inclusive). Existing times are skipped; overlaps with the other mode are blocked.
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -402,24 +494,28 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
               value={generateUntil}
               min={toDateInputValue(new Date())}
               onChange={(e) => setGenerateUntil(e.target.value)}
-              className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
+              className={inputClass}
             />
           </label>
           <button
             type="button"
             disabled={busy}
             onClick={() => void onGenerateSlots()}
-            className="rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
+            className="rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:opacity-60"
           >
-            Generate slots
+            Generate {modeLower} slots
           </button>
         </div>
       </section>
 
-      <section className="space-y-4 rounded-3xl border border-border bg-surface p-6 shadow-sm">
+      <section className={panelClass}>
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">Add a single slot</h2>
-          <p className="mt-1 text-sm text-muted">Optional one-off open slot outside weekly hours.</p>
+          <h2 className="text-base font-semibold tracking-tight text-foreground">
+            Add a single {modeLower} slot
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            Optional one-off open {modeLower} slot outside weekly hours.
+          </p>
         </div>
         <form onSubmit={onAddManualSlot} className="grid gap-3 sm:grid-cols-4">
           <label className="flex flex-col gap-1.5 text-sm font-semibold sm:col-span-2">
@@ -429,7 +525,7 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
               required
               value={manualDate}
               onChange={(e) => setManualDate(e.target.value)}
-              className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
+              className={inputClass}
             />
           </label>
           <label className="flex flex-col gap-1.5 text-sm font-semibold">
@@ -439,7 +535,7 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
               required
               value={manualStart}
               onChange={(e) => setManualStart(e.target.value)}
-              className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
+              className={inputClass}
             />
           </label>
           <label className="flex flex-col gap-1.5 text-sm font-semibold">
@@ -451,27 +547,29 @@ export function AvailabilityManager({ doctorId, initialRules, initialSlots }: Pr
               required
               value={manualDuration}
               onChange={(e) => setManualDuration(Number(e.target.value))}
-              className="rounded-xl border border-border px-3 py-2.5 font-normal outline-none focus:border-primary"
+              className={inputClass}
             />
           </label>
           <div className="sm:col-span-4">
             <button
               type="submit"
               disabled={busy}
-              className="rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold hover:border-primary disabled:opacity-60"
+              className="rounded-2xl bg-primary-soft px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary-soft/80 disabled:opacity-60"
             >
-              Add open slot
+              Add open {modeLower} slot
             </button>
           </div>
         </form>
       </section>
 
-      <section className="space-y-4 rounded-3xl border border-border bg-surface p-6 shadow-sm">
+      <section className={panelClass}>
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">Upcoming open slots</h2>
+          <h2 className="text-base font-semibold tracking-tight text-foreground">
+            Upcoming open {modeLower} slots
+          </h2>
           <p className="mt-1 text-sm text-muted">
-            Patients will book from these. Browse by date and time of day — remove any open slot
-            you no longer want offered.
+            Patients will book {modeLower} appointments from these. Remove any open slot you no
+            longer want offered.
           </p>
         </div>
         <SlotsCalendar

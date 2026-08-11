@@ -91,7 +91,7 @@ const MONTHS = [
   'Dec',
 ] as const;
 
-function formatTime12h(date: Date): string {
+export function formatTime12h(date: Date): string {
   const hours24 = date.getHours();
   const mins = date.getMinutes();
   const period = hours24 >= 12 ? 'PM' : 'AM';
@@ -99,9 +99,63 @@ function formatTime12h(date: Date): string {
   return `${hours12}:${String(mins).padStart(2, '0')} ${period}`;
 }
 
+/** Short patient label for agenda rows, e.g. "Rahul S." */
+export function formatPatientShortName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'Patient';
+  if (parts.length === 1) return parts[0];
+  const last = parts[parts.length - 1];
+  return `${parts[0]} ${last.charAt(0).toUpperCase()}.`;
+}
+
+export function isLocalToday(iso: string, now = new Date()): boolean {
+  const d = new Date(iso);
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
 export function formatBookingWhen(startsAt: string, endsAt: string): string {
   const start = new Date(startsAt);
   const end = new Date(endsAt);
   const datePart = `${WEEKDAYS[start.getDay()]} ${MONTHS[start.getMonth()]} ${start.getDate()}, ${start.getFullYear()}`;
   return `${datePart} · ${formatTime12h(start)} – ${formatTime12h(end)}`;
+}
+
+function dayOrdinal(day: number): string {
+  const mod100 = day % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${day}th`;
+  switch (day % 10) {
+    case 1:
+      return `${day}st`;
+    case 2:
+      return `${day}nd`;
+    case 3:
+      return `${day}rd`;
+    default:
+      return `${day}th`;
+  }
+}
+
+/** Date part for booking cards, e.g. "11th Aug". */
+export function formatBookingDatePart(startsAt: string): string {
+  const start = new Date(startsAt);
+  return `${dayOrdinal(start.getDate())} ${MONTHS[start.getMonth()]}`;
+}
+
+/** Weekday part for booking cards, e.g. "Tue". */
+export function formatBookingWeekday(startsAt: string): string {
+  return WEEKDAYS[new Date(startsAt).getDay()];
+}
+
+/** Compact date for booking cards, e.g. "11th Aug  Tue". */
+export function formatBookingDateLine(startsAt: string): string {
+  return `${formatBookingDatePart(startsAt)}  ${formatBookingWeekday(startsAt)}`;
+}
+
+/** Time range only, e.g. "10:00 AM – 10:15 AM". */
+export function formatBookingTimeRange(startsAt: string, endsAt: string): string {
+  return `${formatTime12h(new Date(startsAt))} – ${formatTime12h(new Date(endsAt))}`;
 }

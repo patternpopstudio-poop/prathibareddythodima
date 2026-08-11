@@ -160,6 +160,42 @@ export function buildMonthDayChips(
   return chips;
 }
 
+/** Next N local calendar days starting today, with slot availability flags. */
+export function buildNextDayChips(
+  dayCount: number,
+  slotsByDay: Map<string, AppointmentSlot[]>
+): CalendarDayChip[] {
+  const chips: CalendarDayChip[] = [];
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+
+  for (let i = 0; i < dayCount; i++) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + i);
+    const dayKey = localDayKey(date);
+    chips.push({
+      dayKey,
+      weekday: new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date),
+      dayNumber: String(date.getDate()),
+      hasSlots: (slotsByDay.get(dayKey)?.length ?? 0) > 0,
+    });
+  }
+
+  return chips;
+}
+
+/** Group slots into a dayKey → slots map (local calendar days). */
+export function slotsByDayMap(slots: AppointmentSlot[]): Map<string, AppointmentSlot[]> {
+  const map = new Map<string, AppointmentSlot[]>();
+  for (const slot of slots) {
+    const dayKey = dayKeyFromIso(slot.startsAt);
+    const existing = map.get(dayKey);
+    if (existing) existing.push(slot);
+    else map.set(dayKey, [slot]);
+  }
+  return map;
+}
+
 /** Unique month keys (YYYY-MM) that contain at least one open slot, sorted. */
 export function availableMonthKeys(slots: AppointmentSlot[]): string[] {
   const keys = new Set<string>();

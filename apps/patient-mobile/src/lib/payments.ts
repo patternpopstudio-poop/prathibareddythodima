@@ -6,13 +6,12 @@ import type {
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 
+import { getBackendUrl } from '@/lib/backend';
 import { supabase } from '@/lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const backendUrl = (
-  process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://localhost:4000'
-).replace(/\/$/, '');
+const backendUrl = getBackendUrl();
 
 async function authHeaders(): Promise<HeadersInit> {
   const { data } = await supabase.auth.getSession();

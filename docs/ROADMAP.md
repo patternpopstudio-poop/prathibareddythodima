@@ -126,6 +126,21 @@ Phased plan for the Hospital Tele-Consulting Platform monorepo.
 
 **Exit criteria:** Booked consultation has working two-way chat with file sharing.
 
+> **Phase 5 Slice 5.1:** `consultations` + immutable `messages` schema, RLS, and shared-types.  
+> **Phase 5 Slice 5.2:** Confirmed booking opens a consultation (`ensure_consultation_for_booking` + bookings trigger + confirm-payment heal; backfill for existing confirmed).  
+> **Phase 5 Slice 5.3:** Patient Messages list + thread; doctor Cases list + thread; text send/receive via reload.  
+> **Phase 5 Slice 5.4:** Supabase Realtime on messages/consultations; first doctor reply sets `in_progress`.  
+> **Phase 5 Slice 5.5:** Private `consultation-attachments` bucket + message attachment metadata; patient/doctor upload PDF/JPG/PNG in chat (signed URLs).  
+> **Phase 5 Slice 5.6:** Doctor live queues — Unreplied (`open`) and Response Awaited (`in_progress` + patient last); `last_message_sender_role` denormalized; Cases tabs + dashboard counts.  
+> **Phase 5 Slice 5.7:** Online/offline foundation — `consultation_mode` on availability/slots/bookings/consultations; booking statuses `pending_admin` / `rejected`; `payment_method`; slot overlap exclusion; RPCs copy mode; shared-types. (UI tabs, payment choice, overflow queue, chat gate → 5.8–5.12.)  
+> **Phase 5 Slice 5.8:** Doctor availability Online/Offline tabs; weekly rules + generate + manual slots scoped by mode; overlap conflict messaging; Bookings page Online/Offline sections.  
+> **Phase 5 Slice 5.9:** Patient home Online/Offline cards; mode-filtered slot browse + book RPC `p_mode` validation; mode badges on bookings.  
+> **Phase 5 Slice 5.10:** Offline pay online vs pay at clinic; clinic path confirms unpaid; admin `mark_clinic_booking_paid` + Clinic payments UI; doctor payment status read-only.  
+> **Phase 5 Slice 5.11:** Offline overflow — patient `request_offline_overflow_booking` when no open offline slots (`pending_admin` + preferred window); admin `/overflow` accept (create/assign offline slot) or reject with reason; overlap / active-consult blocked.  
+> **Phase 5 Slice 5.12:** Chat gate — message + attachment INSERT only when `consultations.mode = online`; patient Messages lists online only; doctor Cases Online (queues/chat) vs Offline (appointment details, no composer); shared `isChatEnabledForMode` / `OFFLINE_CHAT_UNAVAILABLE_COPY`.  
+> **Phase 5 Slice 5.13:** Read receipts — `messages.read_at`; peer-only UPDATE (content still immutable); `mark_consultation_messages_read` on thread open / peer INSERT; Realtime message UPDATE; Sent/Seen on own bubbles.  
+> **Phase 5 Slice 5.14:** In-app notifications — `notifications` table + audit fan-out; admin on `pending_admin` / clinic unpaid; patient on overflow accept/reject; doctor on offline assign (same-day copy); inbox UI + unread badges (email deferred).
+
 ---
 
 ## Phase 6 — Clinical workflow: prescriptions & SOAP notes
