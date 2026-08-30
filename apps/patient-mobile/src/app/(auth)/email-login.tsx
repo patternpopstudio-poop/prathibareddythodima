@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { Screen } from '@/components/ui/screen';
-import { TextField } from '@/components/ui/text-field';
+import { PasswordVisibilityToggle, TextField } from '@/components/ui/text-field';
 import { Colors, FontFamily, Spacing } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 
@@ -16,6 +16,7 @@ export default function EmailLoginScreen() {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -56,10 +57,16 @@ export default function EmailLoginScreen() {
         />
         <TextField
           label="Password"
-          secureTextEntry
+          secureTextEntry={!passwordVisible}
           autoComplete="password"
           value={password}
           onChangeText={setPassword}
+          rightAccessory={
+            <PasswordVisibilityToggle
+              visible={passwordVisible}
+              onPress={() => setPasswordVisible((v) => !v)}
+            />
+          }
         />
         {error ? <AppText variant="error">{error}</AppText> : null}
         <Button title="Sign in" loading={loading} onPress={onSubmit} />

@@ -58,6 +58,11 @@ export function AvailabilityManager({
   const [slots, setSlots] = useState(initialSlots);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [slotCreatedModal, setSlotCreatedModal] = useState<{
+    title: string;
+    body: string;
+  } | null>(null);
+  const [generateNotice, setGenerateNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [dayOfWeek, setDayOfWeek] = useState<DayOfWeek>(1);
@@ -85,6 +90,7 @@ export function AvailabilityManager({
   function clearFeedback() {
     setError(null);
     setMessage(null);
+    setGenerateNotice(null);
   }
 
   async function refreshFromServer() {
@@ -255,7 +261,10 @@ export function AvailabilityManager({
       }
 
       if (toInsert.length === 0) {
-        setMessage(`All generated ${modeLower} slots already exist for that period.`);
+        const already = `All generated ${modeLower} slots already exist for that period.`;
+        setMessage(already);
+        setGenerateNotice(already);
+        setSlotCreatedModal({ title: 'Slots already exist', body: already });
         return;
       }
 
@@ -263,9 +272,10 @@ export function AvailabilityManager({
       const { error: insertError } = await supabase.from('appointment_slots').insert(toInsert);
       if (insertError) throw insertError;
 
-      setMessage(
-        `Created ${toInsert.length} open ${modeLower} slot${toInsert.length === 1 ? '' : 's'}.`
-      );
+      const created = `Created ${toInsert.length} open ${modeLower} slot${toInsert.length === 1 ? '' : 's'}.`;
+      setMessage(created);
+      setGenerateNotice(created);
+      setSlotCreatedModal({ title: 'Slots created', body: created });
       await refreshFromServer();
     } catch (err) {
       setError(formatSlotInsertError(err, 'Could not generate slots.'));
@@ -310,6 +320,8 @@ export function AvailabilityManager({
       if (insertError) throw insertError;
 
       setMessage(`Open ${modeLower} slot added.`);
+      setGenerateNotice('Slot created.');
+      setSlotCreatedModal({ title: 'Slot created', body: `Open ${modeLower} slot added.` });
       await refreshFromServer();
     } catch (err) {
       setError(formatSlotInsertError(err, 'Could not add slot.'));
@@ -506,6 +518,9 @@ export function AvailabilityManager({
             Generate {modeLower} slots
           </button>
         </div>
+        {generateNotice ? (
+          <p className="text-sm font-medium text-primary">{generateNotice}</p>
+        ) : null}
       </section>
 
       <section className={panelClass}>
@@ -578,6 +593,29 @@ export function AvailabilityManager({
           onDeleteSlot={(slotId) => void onDeleteSlot(slotId)}
         />
       </section>
+
+      {slotCreatedModal ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="slot-created-title"
+        >
+          <div className="w-full max-w-md rounded-3xl bg-surface p-6 shadow-[0_8px_32px_rgba(0,0,0,0.12)]">
+            <h3 id="slot-created-title" className="text-lg font-semibold tracking-tight text-foreground">
+              {slotCreatedModal.title}
+            </h3>
+            <p className="mt-2 text-sm text-muted">{slotCreatedModal.body}</p>
+            <button
+              type="button"
+              onClick={() => setSlotCreatedModal(null)}
+              className="mt-5 w-full rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-hover"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

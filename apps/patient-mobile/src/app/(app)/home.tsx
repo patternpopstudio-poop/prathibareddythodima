@@ -194,9 +194,22 @@ export default function HomeScreen() {
       ) : upcoming ? (
         <Pressable
           accessibilityRole="button"
-          onPress={() =>
-            router.push(`/(app)/booking-confirmed?id=${upcoming.booking.id}` as Href)
+          accessibilityLabel={
+            upcoming.booking.mode === 'online' && upcoming.consultationId
+              ? 'Open consultation chat'
+              : 'Open appointment details'
           }
+          onPress={() => {
+            const goChat =
+              upcoming.booking.mode === 'online' &&
+              upcoming.booking.status === 'confirmed' &&
+              upcoming.consultationId;
+            if (goChat) {
+              router.push(`/(app)/consultation/${upcoming.consultationId}` as Href);
+              return;
+            }
+            router.push(`/(app)/booking-confirmed?id=${upcoming.booking.id}` as Href);
+          }}
           style={({ pressed }) => [styles.apptCard, pressed && styles.pressed]}>
           <DoctorAvatar
             name={upcoming.doctor.fullName}
@@ -213,7 +226,16 @@ export default function HomeScreen() {
                   {consultationModeSpecialtyLabel(upcoming.booking.mode)}
                 </AppText>
               </View>
-              <Icon name="chevron" size={18} color={Colors.gray400} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="View appointment details"
+                hitSlop={8}
+                onPress={() =>
+                  router.push(`/(app)/booking-confirmed?id=${upcoming.booking.id}` as Href)
+                }
+                style={({ pressed }) => [styles.detailsBtn, pressed && styles.pressed]}>
+                <Icon name="notes" size={20} color={Colors.primary900} />
+              </Pressable>
             </View>
 
             <View style={styles.apptMetaRow}>
@@ -579,6 +601,14 @@ const styles = StyleSheet.create({
   apptCopy: {
     flex: 1,
     gap: 2,
+  },
+  detailsBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.primary50,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   apptName: {
     fontSize: 15,

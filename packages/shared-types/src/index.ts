@@ -393,6 +393,8 @@ export interface Consultation extends BaseEntity {
   lastMessageAt: string | null;
   /** Sender role of the latest message; null until first message. */
   lastMessageSenderRole: MessageSenderRole | null;
+  /** Doctor hid a cancelled case from Cases. History is kept. */
+  archivedAt: string | null;
 }
 
 /**
@@ -776,6 +778,7 @@ export interface ConsultationRow {
   mode?: ConsultationMode;
   last_message_at: string | null;
   last_message_sender_role: MessageSenderRole | null;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -811,6 +814,42 @@ export function isChatEnabledForMode(mode: ConsultationMode): boolean {
 /** Patient/doctor copy when an offline case has no messaging. */
 export const OFFLINE_CHAT_UNAVAILABLE_COPY =
   'In-clinic visit — chat not available';
+
+/** Doctors may send chat starting this many minutes before slot start. */
+export const DOCTOR_CHAT_OPENS_MINUTES_BEFORE = 10;
+
+/** Doctor composer locked until the 10-minute window. */
+export const DOCTOR_CHAT_LOCKED_COPY =
+  'Chat opens 10 minutes before the appointment.';
+
+/** Patient/doctor copy when the appointment was cancelled. */
+export const CANCELLED_CHAT_UNAVAILABLE_COPY =
+  'This appointment was cancelled. Chat is no longer available.';
+
+/** Chat send is allowed only for a live (non-cancelled) booking. */
+export function isBookingChatActive(
+  status: BookingStatus | string | null | undefined
+): boolean {
+  return status !== 'cancelled' && status !== 'rejected';
+}
+
+/** Instant the doctor may first send (slot start minus 10 minutes). */
+export function doctorChatUnlockAtMs(slotStartsAt: string): number | null {
+  const start = new Date(slotStartsAt).getTime();
+  if (!Number.isFinite(start)) return null;
+  return start - DOCTOR_CHAT_OPENS_MINUTES_BEFORE * 60 * 1000;
+}
+
+/** Whether the doctor may send text/attachments for this slot start time. */
+export function isDoctorChatOpen(
+  slotStartsAt: string | null | undefined,
+  nowMs: number = Date.now()
+): boolean {
+  if (!slotStartsAt) return false;
+  const unlockAt = doctorChatUnlockAtMs(slotStartsAt);
+  if (unlockAt == null) return false;
+  return nowMs >= unlockAt;
+}
 
 /** Normalize query/param values to a consultation mode (default online). */
 export function parseConsultationMode(value: string | string[] | undefined | null): ConsultationMode {
@@ -959,6 +998,7 @@ export function mapConsultationRow(row: ConsultationRow): Consultation {
     mode: asConsultationMode(row.mode),
     lastMessageAt: row.last_message_at,
     lastMessageSenderRole: row.last_message_sender_role ?? null,
+    archivedAt: row.archived_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

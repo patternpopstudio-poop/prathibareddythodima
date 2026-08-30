@@ -2,8 +2,11 @@
 
 import type { Consultation, Message } from '@teleconsult/shared-types';
 import {
+  DOCTOR_CHAT_LOCKED_COPY,
   MESSAGE_BODY_MAX_LENGTH,
   appendMessageIfNew,
+  doctorChatUnlockAtMs,
+  isDoctorChatOpen,
   isImageAttachmentMime,
   mapMessageRow,
   messageReceiptLabel,
@@ -34,6 +37,7 @@ type Props = {
   doctorUserId: string;
   initialMessages: Message[];
   initialStatus: Consultation['status'];
+  slotStartsAt?: string | null;
 };
 
 function formatMessageTime(iso: string): string {
@@ -121,11 +125,69 @@ function MessageAttachment({
   );
 }
 
+function formatUnlockTime(iso: string): string {
+  const unlockMs = doctorChatUnlockAtMs(iso);
+  const d = new Date(unlockMs ?? iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function UploadIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden
+    >
+      <path d="M12 16V7m0 0-3.5 3.5M12 7l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 16.5V18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ReloadIcon({ spinning }: { spinning?: boolean }) {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className={spinning ? 'animate-spin' : undefined}
+      aria-hidden
+    >
+      <path
+        d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M3 3v5h5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M16 16h5v5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function ConsultationChat({
   consultationId,
   doctorUserId,
   initialMessages,
   initialStatus,
+  slotStartsAt,
 }: Props) {
   const [messages, setMessages] = useState(initialMessages);
   const [status, setStatus] = useState(initialStatus);
@@ -133,8 +195,10 @@ export function ConsultationChat({
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const chatUnlocked = isDoctorChatOpen(slotStartsAt, nowMs);
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -151,6 +215,12 @@ export function ConsultationChat({
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  useEffect(() => {
+    if (chatUnlocked) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, [chatUnlocked]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -208,7 +278,7 @@ export function ConsultationChat({
   async function onSend(e: FormEvent) {
     e.preventDefault();
     const text = draft.trim();
-    if (!text || busy) return;
+    if (!text || busy || !chatUnlocked) return;
 
     setBusy(true);
     setError(null);
@@ -233,7 +303,7 @@ export function ConsultationChat({
   async function onFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || busy) return;
+    if (!file || busy || !chatUnlocked) return;
 
     setBusy(true);
     setError(null);
@@ -267,16 +337,21 @@ export function ConsultationChat({
           type="button"
           disabled={busy}
           onClick={() => void reload()}
-          className="text-sm font-semibold text-primary hover:underline disabled:opacity-60"
+          aria-label={busy ? 'Reloading messages' : 'Reload messages'}
+          title="Reload"
+          className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-primary hover:bg-primary-soft disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {busy ? 'Working…' : 'Reload'}
+          <ReloadIcon spinning={busy} />
         </button>
       </div>
 
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
         {messages.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted">
-            No messages yet. Reply to the patient to start the consultation.
+            No messages yet.{' '}
+            {chatUnlocked
+              ? 'Reply to the patient to start the consultation.'
+              : DOCTOR_CHAT_LOCKED_COPY}
           </p>
         ) : (
           messages.map((item) => {
@@ -316,6 +391,13 @@ export function ConsultationChat({
 
       {error ? <p className="px-5 text-sm text-danger">{error}</p> : null}
 
+      {!chatUnlocked ? (
+        <p className="px-5 pb-2 text-sm text-muted">
+          {DOCTOR_CHAT_LOCKED_COPY}
+          {slotStartsAt ? ` Messaging unlocks at ${formatUnlockTime(slotStartsAt)}.` : ''}
+        </p>
+      ) : null}
+
       <form
         onSubmit={(e) => void onSend(e)}
         className="flex items-end gap-3 border-t border-border px-5 py-4"
@@ -329,24 +411,26 @@ export function ConsultationChat({
         />
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || !chatUnlocked}
           onClick={() => fileInputRef.current?.click()}
-          className="h-11 rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-45"
+          aria-label="Upload file"
+          title="Upload file"
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border bg-background text-primary hover:bg-primary-soft disabled:opacity-45"
         >
-          File
+          <UploadIcon />
         </button>
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={2}
           maxLength={MESSAGE_BODY_MAX_LENGTH}
-          placeholder="Write a reply…"
-          disabled={busy}
+          placeholder={chatUnlocked ? 'Write a reply…' : 'Chat locked until 10 minutes before the appointment'}
+          disabled={busy || !chatUnlocked}
           className="min-h-[2.75rem] flex-1 resize-y rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none ring-primary/30 focus:ring-2 disabled:opacity-60"
         />
         <button
           type="submit"
-          disabled={busy || !draft.trim()}
+          disabled={busy || !chatUnlocked || !draft.trim()}
           className="h-11 rounded-2xl bg-primary px-5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-45"
         >
           Send

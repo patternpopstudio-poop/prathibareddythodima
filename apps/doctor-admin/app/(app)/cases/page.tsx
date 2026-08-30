@@ -2,6 +2,7 @@ import type { ConsultationMode, DoctorCaseQueue } from '@teleconsult/shared-type
 import {
   bookingPaymentStatusLabel,
   consultationModeLabel,
+  isBookingChatActive,
   parseConsultationMode,
 } from '@teleconsult/shared-types';
 import Link from 'next/link';
@@ -197,10 +198,16 @@ export default async function CasesPage({
               const fullName = patient.fullName.trim() || 'Patient';
               const shortName = formatPatientShortName(patient.fullName);
               const isOnline = mode === 'online';
-              const statusLabel = isOnline
-                ? consultationStatusLabel(consultation.status)
-                : consultationModeLabel('offline');
-              const statusActive = isOnline && consultation.status === 'in_progress';
+              const bookingCancelled = booking
+                ? !isBookingChatActive(booking.status)
+                : false;
+              const statusLabel = bookingCancelled
+                ? 'Cancelled'
+                : isOnline
+                  ? consultationStatusLabel(consultation.status)
+                  : consultationModeLabel('offline');
+              const statusActive =
+                isOnline && !bookingCancelled && consultation.status === 'in_progress';
 
               return (
                 <li
@@ -263,7 +270,11 @@ export default async function CasesPage({
                         : 'bg-primary-soft text-primary hover:bg-primary-soft/80'
                     }`}
                   >
-                    {isOnline ? 'Open Consultation' : 'View Visit'}
+                    {bookingCancelled
+                      ? 'Remove chat'
+                      : isOnline
+                        ? 'Open Consultation'
+                        : 'View Visit'}
                   </Link>
                 </li>
               );

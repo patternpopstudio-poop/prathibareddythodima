@@ -1,4 +1,6 @@
 import type {
+  Booking,
+  BookingRow,
   Consultation,
   ConsultationRow,
   Doctor,
@@ -9,12 +11,15 @@ import type {
   MessageRow,
 } from '@teleconsult/shared-types';
 import {
+  CANCELLED_CHAT_UNAVAILABLE_COPY,
   CONSULTATION_ATTACHMENTS_BUCKET,
   MESSAGE_ATTACHMENT_MAX_BYTES,
   MESSAGE_BODY_MAX_LENGTH,
   OFFLINE_CHAT_UNAVAILABLE_COPY,
   consultationAttachmentObjectPath,
+  isBookingChatActive,
   isChatEnabledForMode,
+  mapBookingRow,
   mapConsultationRow,
   mapDoctorRow,
   mapMessageRow,
@@ -29,11 +34,13 @@ export type PatientConsultationCase = {
   doctor: Doctor;
   /** Latest message body / attachment preview when available. */
   lastMessagePreview: string | null;
+  booking?: Booking | null;
 };
 
 type ConsultationJoinRow = ConsultationRow & {
   doctors: DoctorRow | DoctorRow[] | null;
   messages?: Pick<MessageRow, 'body' | 'attachment_name' | 'created_at'>[] | null;
+  bookings?: BookingRow | BookingRow[] | null;
 };
 
 export type AttachmentUploadSource = {
@@ -58,10 +65,12 @@ export async function fetchPatientConsultations(
       `
       *,
       doctors (*),
-      messages (body, attachment_name, created_at)
+      messages (body, attachment_name, created_at),
+      bookings (*)
     `
     )
     .eq('mode', 'online')
+    .is('archived_at', null)
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
     .order('created_at', { ascending: false, foreignTable: 'messages' })
@@ -74,6 +83,9 @@ export async function fetchPatientConsultations(
   for (const row of (data as ConsultationJoinRow[] | null) ?? []) {
     const doctorRow = firstRelation(row.doctors);
     if (!doctorRow) continue;
+    const bookingRow = firstRelation(row.bookings);
+    if (bookingRow && !isBookingChatActive(bookingRow.status)) continue;
+    if (row.archived_at) continue;
     const latest = row.messages?.[0];
     mapped.push({
       consultation: mapConsultationRow(row),
@@ -83,6 +95,7 @@ export async function fetchPatientConsultations(
           ? { body: latest.body, attachmentName: latest.attachment_name }
           : null
       ),
+      booking: bookingRow ? mapBookingRow(bookingRow) : null,
     });
   }
   return mapped;
@@ -96,7 +109,8 @@ export async function fetchPatientConsultationById(
     .select(
       `
       *,
-      doctors (*)
+      doctors (*),
+      bookings (*)
     `
     )
     .eq('id', consultationId)
@@ -108,11 +122,13 @@ export async function fetchPatientConsultationById(
   const row = data as ConsultationJoinRow;
   const doctorRow = firstRelation(row.doctors);
   if (!doctorRow) return null;
+  const bookingRow = firstRelation(row.bookings);
 
   return {
     consultation: mapConsultationRow(row),
     doctor: mapDoctorRow(doctorRow),
     lastMessagePreview: null,
+    booking: bookingRow ? mapBookingRow(bookingRow) : null,
   };
 }
 
@@ -145,13 +161,21 @@ async function requireUserId(): Promise<string> {
 async function assertOnlineChat(consultationId: string): Promise<void> {
   const { data, error } = await supabase
     .from('consultations')
-    .select('mode')
+    .select('mode, archived_at, bookings (status)')
     .eq('id', consultationId)
     .maybeSingle();
   if (error) throw error;
   const mode = data?.mode === 'offline' ? 'offline' : 'online';
   if (!isChatEnabledForMode(mode)) {
     throw new Error(OFFLINE_CHAT_UNAVAILABLE_COPY);
+  }
+  if (data?.archived_at) {
+    throw new Error(CANCELLED_CHAT_UNAVAILABLE_COPY);
+  }
+  const booking = Array.isArray(data?.bookings) ? data.bookings[0] : data?.bookings;
+  const status = booking && typeof booking === 'object' ? booking.status : null;
+  if (status && !isBookingChatActive(status)) {
+    throw new Error(CANCELLED_CHAT_UNAVAILABLE_COPY);
   }
 }
 

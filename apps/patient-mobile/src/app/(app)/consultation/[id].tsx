@@ -1,7 +1,9 @@
 import {
+  CANCELLED_CHAT_UNAVAILABLE_COPY,
   MESSAGE_BODY_MAX_LENGTH,
   OFFLINE_CHAT_UNAVAILABLE_COPY,
   appendMessageIfNew,
+  isBookingChatActive,
   isChatEnabledForMode,
   isImageAttachmentMime,
   messageReceiptLabel,
@@ -154,7 +156,11 @@ export default function ConsultationThreadScreen() {
         return;
       }
       setCaseRow(row);
-      if (isChatEnabledForMode(row.consultation.mode)) {
+      const liveChat =
+        isChatEnabledForMode(row.consultation.mode) &&
+        !row.consultation.archivedAt &&
+        isBookingChatActive(row.booking?.status);
+      if (liveChat) {
         setMessages(await fetchConsultationMessages(id));
         void markConsultationMessagesRead(id).catch(() => {});
       } else {
@@ -180,7 +186,13 @@ export default function ConsultationThreadScreen() {
       void (async () => {
         try {
           const row = await fetchPatientConsultationById(id);
-          if (cancelled || !row || !isChatEnabledForMode(row.consultation.mode)) {
+          if (
+            cancelled ||
+            !row ||
+            !isChatEnabledForMode(row.consultation.mode) ||
+            row.consultation.archivedAt ||
+            !isBookingChatActive(row.booking?.status)
+          ) {
             return;
           }
 
@@ -298,6 +310,10 @@ export default function ConsultationThreadScreen() {
   const chatEnabled = caseRow
     ? isChatEnabledForMode(caseRow.consultation.mode)
     : false;
+  const bookingCancelled =
+    Boolean(caseRow?.consultation.archivedAt) ||
+    (caseRow?.booking ? !isBookingChatActive(caseRow.booking.status) : false);
+  const composerEnabled = chatEnabled && !bookingCancelled;
 
   return (
     <Screen scroll={false} padded={false}>
@@ -310,7 +326,7 @@ export default function ConsultationThreadScreen() {
                 {consultationStatusLabel(caseRow.consultation.status)}
                 {chatEnabled && live ? ' · Live' : ''}
               </AppText>
-              {chatEnabled ? (
+              {composerEnabled ? (
                 <Pressable onPress={() => void load()} hitSlop={8}>
                   <AppText variant="bodyMedium" style={styles.reloadText}>
                     Reload
@@ -335,7 +351,19 @@ export default function ConsultationThreadScreen() {
           </View>
         ) : null}
 
-        {!loading && caseRow && !chatEnabled ? (
+        {!loading && caseRow && bookingCancelled ? (
+          <View style={styles.offlineGate}>
+            <AppText variant="h3" style={styles.offlineTitle}>
+              {CANCELLED_CHAT_UNAVAILABLE_COPY}
+            </AppText>
+            <AppText variant="muted" style={styles.offlineBody}>
+              This visit is no longer on your schedule. Book a new appointment if you
+              still need care.
+            </AppText>
+          </View>
+        ) : null}
+
+        {!loading && caseRow && !chatEnabled && !bookingCancelled ? (
           <View style={styles.offlineGate}>
             <AppText variant="h3" style={styles.offlineTitle}>
               {OFFLINE_CHAT_UNAVAILABLE_COPY}
@@ -347,7 +375,7 @@ export default function ConsultationThreadScreen() {
           </View>
         ) : null}
 
-        {!loading && caseRow && chatEnabled ? (
+        {!loading && caseRow && composerEnabled ? (
           <>
             <FlatList
               ref={listRef}

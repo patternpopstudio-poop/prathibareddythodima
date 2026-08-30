@@ -19,15 +19,17 @@ import {
 import { getBackendUrl } from '@/lib/backend';
 import { supabase } from '@/lib/supabase';
 
+type BookingJoinRow = BookingRow & {
+  appointment_slots: AppointmentSlotRow | AppointmentSlotRow[] | null;
+  doctors: DoctorRow | DoctorRow[] | null;
+  consultations?: { id: string } | { id: string }[] | null;
+};
+
 export type UpcomingBooking = {
   booking: Booking;
   slot: AppointmentSlot | null;
   doctor: Doctor;
-};
-
-type BookingJoinRow = BookingRow & {
-  appointment_slots: AppointmentSlotRow | AppointmentSlotRow[] | null;
-  doctors: DoctorRow | DoctorRow[] | null;
+  consultationId?: string | null;
 };
 
 const backendUrl = getBackendUrl();
@@ -96,7 +98,8 @@ export async function fetchUpcomingBookings(limit = 20): Promise<UpcomingBooking
       `
       *,
       appointment_slots (*),
-      doctors (*)
+      doctors (*),
+      consultations (id)
     `
     )
     .in('status', ['confirmed', 'pending_payment', 'pending_admin'])
@@ -121,6 +124,7 @@ export async function fetchUpcomingBookings(limit = 20): Promise<UpcomingBooking
         booking,
         slot: null,
         doctor: mapDoctorRow(doctorRow),
+        consultationId: firstRelation(row.consultations)?.id ?? null,
       });
       continue;
     }
@@ -132,6 +136,7 @@ export async function fetchUpcomingBookings(limit = 20): Promise<UpcomingBooking
       booking,
       slot,
       doctor: mapDoctorRow(doctorRow),
+      consultationId: firstRelation(row.consultations)?.id ?? null,
     });
   }
 
@@ -153,7 +158,8 @@ export async function fetchBookingById(bookingId: string): Promise<UpcomingBooki
       `
       *,
       appointment_slots (*),
-      doctors (*)
+      doctors (*),
+      consultations (id)
     `
     )
     .eq('id', bookingId)
@@ -171,6 +177,7 @@ export async function fetchBookingById(bookingId: string): Promise<UpcomingBooki
     booking: mapBookingRow(row),
     slot: slotRow ? mapAppointmentSlotRow(slotRow) : null,
     doctor: mapDoctorRow(doctorRow),
+    consultationId: firstRelation(row.consultations)?.id ?? null,
   };
 }
 

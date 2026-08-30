@@ -15,12 +15,16 @@ import type {
   PatientRow,
 } from '@teleconsult/shared-types';
 import {
+  CANCELLED_CHAT_UNAVAILABLE_COPY,
   CONSULTATION_ATTACHMENTS_BUCKET,
+  DOCTOR_CHAT_LOCKED_COPY,
   MESSAGE_ATTACHMENT_MAX_BYTES,
   MESSAGE_BODY_MAX_LENGTH,
   OFFLINE_CHAT_UNAVAILABLE_COPY,
   consultationAttachmentObjectPath,
+  isBookingChatActive,
   isChatEnabledForMode,
+  isDoctorChatOpen,
   mapAppointmentSlotRow,
   mapBookingRow,
   mapConsultationRow,
@@ -142,23 +146,19 @@ export async function fetchDoctorConsultations(
   let query = supabase
     .from('consultations')
     .select(
-      mode === 'offline'
-        ? `
+      `
       *,
       patients (*),
+      messages (body, attachment_name, created_at),
       bookings (
         *,
         appointment_slots (*)
       )
     `
-        : `
-      *,
-      patients (*),
-      messages (body, attachment_name, created_at)
-    `
     )
     .eq('doctor_id', doctorId)
-    .eq('mode', mode);
+    .eq('mode', mode)
+    .is('archived_at', null);
 
   if (mode === 'online') {
     if (queue === 'unreplied') {
@@ -193,6 +193,18 @@ export async function fetchDoctorConsultations(
     const slotRow = bookingRow
       ? firstRelation(bookingRow.appointment_slots)
       : null;
+    if (row.archived_at) continue;
+    if (mode === 'offline' && bookingRow && !isBookingChatActive(bookingRow.status)) {
+      continue;
+    }
+    if (
+      mode === 'online' &&
+      queue !== 'all' &&
+      bookingRow &&
+      !isBookingChatActive(bookingRow.status)
+    ) {
+      continue;
+    }
     mapped.push({
       consultation: mapConsultationRow(row),
       patient: mapPatientRow(patientRow),
@@ -235,36 +247,45 @@ export async function fetchDoctorCaseQueueCounts(
   supabase: Supabase,
   doctorId: string
 ): Promise<DoctorCaseQueueCounts> {
-  const [allRes, unrepliedRes, awaitedRes] = await Promise.all([
-    supabase
-      .from('consultations')
-      .select('id', { count: 'exact', head: true })
-      .eq('doctor_id', doctorId)
-      .eq('mode', 'online'),
-    supabase
-      .from('consultations')
-      .select('id', { count: 'exact', head: true })
-      .eq('doctor_id', doctorId)
-      .eq('mode', 'online')
-      .eq('status', 'open'),
-    supabase
-      .from('consultations')
-      .select('id', { count: 'exact', head: true })
-      .eq('doctor_id', doctorId)
-      .eq('mode', 'online')
-      .eq('status', 'in_progress')
-      .eq('last_message_sender_role', 'patient'),
-  ]);
+  const { data, error } = await supabase
+    .from('consultations')
+    .select(
+      `
+      id,
+      status,
+      last_message_sender_role,
+      archived_at,
+      bookings (status)
+    `
+    )
+    .eq('doctor_id', doctorId)
+    .eq('mode', 'online')
+    .is('archived_at', null);
 
-  if (allRes.error) throw allRes.error;
-  if (unrepliedRes.error) throw unrepliedRes.error;
-  if (awaitedRes.error) throw awaitedRes.error;
+  if (error) throw error;
 
-  return {
-    all: allRes.count ?? 0,
-    unreplied: unrepliedRes.count ?? 0,
-    responseAwaited: awaitedRes.count ?? 0,
-  };
+  let all = 0;
+  let unreplied = 0;
+  let responseAwaited = 0;
+  for (const row of (data as {
+    id: string;
+    status: Consultation['status'];
+    last_message_sender_role: Consultation['lastMessageSenderRole'];
+    archived_at: string | null;
+    bookings: { status: string } | { status: string }[] | null;
+  }[] | null) ?? []) {
+    if (row.archived_at) continue;
+    const booking = firstRelation(row.bookings);
+    const active = isBookingChatActive(booking?.status);
+    all += 1;
+    if (!active) continue;
+    if (row.status === 'open') unreplied += 1;
+    if (row.status === 'in_progress' && row.last_message_sender_role === 'patient') {
+      responseAwaited += 1;
+    }
+  }
+
+  return { all, unreplied, responseAwaited };
 }
 
 export async function fetchDoctorConsultationById(
@@ -309,6 +330,21 @@ export async function fetchDoctorConsultationById(
   };
 }
 
+/** Hide a cancelled online case from the doctor's Cases list. */
+export async function archiveDoctorConsultation(
+  supabase: BrowserSupabase,
+  consultationId: string,
+  doctorId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('consultations')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', consultationId)
+    .eq('doctor_id', doctorId)
+    .is('archived_at', null);
+  if (error) throw error;
+}
+
 export async function fetchConsultationMessages(
   supabase: Supabase,
   consultationId: string,
@@ -331,7 +367,7 @@ export async function uploadConsultationAttachment(
   consultationId: string,
   file: File
 ): Promise<MessageAttachmentInput> {
-  await assertOnlineChat(supabase, consultationId);
+  await assertDoctorChatWindow(supabase, consultationId);
 
   const trimmedName = file.name.trim() || 'attachment';
   const { mime, sizeBytes } = validateAttachmentMeta(
@@ -372,19 +408,55 @@ export async function createConsultationAttachmentSignedUrl(
   return data.signedUrl;
 }
 
+type ConsultationChatGateRow = ConsultationJoinRow & {
+  mode?: ConsultationMode;
+};
+
 async function assertOnlineChat(
   supabase: BrowserSupabase,
   consultationId: string
-): Promise<void> {
+): Promise<ConsultationChatGateRow> {
   const { data, error } = await supabase
     .from('consultations')
-    .select('mode')
+    .select(
+      `
+      mode,
+      archived_at,
+      bookings (
+        status,
+        preferred_starts_at,
+        appointment_slots ( starts_at )
+      )
+    `
+    )
     .eq('id', consultationId)
     .maybeSingle();
   if (error) throw error;
-  const mode = data?.mode === 'offline' ? 'offline' : 'online';
+  if (!data) throw new Error('Consultation not found.');
+  const row = data as ConsultationChatGateRow;
+  const mode = row.mode === 'offline' ? 'offline' : 'online';
   if (!isChatEnabledForMode(mode)) {
     throw new Error(OFFLINE_CHAT_UNAVAILABLE_COPY);
+  }
+  return row;
+}
+
+async function assertDoctorChatWindow(
+  supabase: BrowserSupabase,
+  consultationId: string
+): Promise<void> {
+  const row = await assertOnlineChat(supabase, consultationId);
+  if (row.archived_at) {
+    throw new Error(CANCELLED_CHAT_UNAVAILABLE_COPY);
+  }
+  const bookingRow = firstRelation(row.bookings);
+  if (bookingRow && !isBookingChatActive(bookingRow.status)) {
+    throw new Error(CANCELLED_CHAT_UNAVAILABLE_COPY);
+  }
+  const slotRow = bookingRow ? firstRelation(bookingRow.appointment_slots) : null;
+  const startsAt = slotRow?.starts_at ?? bookingRow?.preferred_starts_at ?? null;
+  if (!isDoctorChatOpen(startsAt)) {
+    throw new Error(DOCTOR_CHAT_LOCKED_COPY);
   }
 }
 
@@ -401,7 +473,7 @@ export async function sendDoctorMessage(
     throw new Error(`Message must be at most ${MESSAGE_BODY_MAX_LENGTH} characters.`);
   }
 
-  await assertOnlineChat(supabase, consultationId);
+  await assertDoctorChatWindow(supabase, consultationId);
 
   const { data, error } = await supabase
     .from('messages')
@@ -432,7 +504,7 @@ export async function sendDoctorAttachment(
     throw new Error(`Message must be at most ${MESSAGE_BODY_MAX_LENGTH} characters.`);
   }
 
-  await assertOnlineChat(supabase, consultationId);
+  await assertDoctorChatWindow(supabase, consultationId);
 
   const attachment = await uploadConsultationAttachment(
     supabase,
