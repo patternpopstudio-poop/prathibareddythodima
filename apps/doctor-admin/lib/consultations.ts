@@ -23,6 +23,7 @@ import {
   OFFLINE_CHAT_UNAVAILABLE_COPY,
   UNCONFIRMED_CHAT_UNAVAILABLE_COPY,
   consultationAttachmentObjectPath,
+  consultationStatusLabel,
   isBookingChatActive,
   isChatEnabledForMode,
   isDoctorChatOpen,
@@ -536,9 +537,7 @@ export async function sendDoctorAttachment(
   return mapMessageRow(data as MessageRow);
 }
 
-export function consultationStatusLabel(status: Consultation['status']): string {
-  return status === 'in_progress' ? 'In progress' : 'Open';
-}
+export { consultationStatusLabel };
 
 export function formatConsultationActivity(iso: string | null | undefined): string {
   if (!iso) return 'No messages yet';

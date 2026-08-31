@@ -224,10 +224,39 @@ export type RefundReason =
   | 'reschedule_failed';
 
 /**
- * Consultation case lifecycle (Phase 5).
- * `closed` ships in Phase 7 — not in the DB enum yet.
+ * Consultation case lifecycle.
+ * `completed` = SOAP signed off (Phase 6). Chat read-only + ratings are Phase 6.7 / 7.
  */
-export type ConsultationStatus = 'open' | 'in_progress';
+export type ConsultationStatus = 'open' | 'in_progress' | 'completed';
+
+/** Hours the assigned doctor may amend SOAP after sign-off (Slice 6.7). */
+export const SOAP_AMENDMENT_HOURS = 24;
+
+/** Max UTF-16 / Postgres character length per SOAP field. */
+export const SOAP_FIELD_MAX_LENGTH = 8000;
+
+/** Draft SOAP is always editable until an amendment deadline is set and has passed. */
+export function isSoapAmendmentOpen(
+  amendmentDeadline: string | null | undefined,
+  nowMs: number = Date.now()
+): boolean {
+  if (!amendmentDeadline) return true;
+  const deadline = new Date(amendmentDeadline).getTime();
+  if (!Number.isFinite(deadline)) return true;
+  return nowMs <= deadline;
+}
+
+/** Max length for patient-visible diagnosis on a prescription. */
+export const PATIENT_DIAGNOSIS_MAX_LENGTH = 500;
+
+/** Max length for drug name, dosage, frequency, duration. */
+export const PRESCRIPTION_ITEM_FIELD_MAX_LENGTH = 200;
+
+/** Max length for optional item instructions. */
+export const PRESCRIPTION_INSTRUCTIONS_MAX_LENGTH = 2000;
+
+/** Prescription version lifecycle (Slice 6.1). */
+export type PrescriptionStatus = 'issued' | 'voided';
 
 /** Who sent a chat message (admins are read-only on chat). */
 export type MessageSenderRole = 'patient' | 'doctor';
@@ -381,6 +410,7 @@ export type DoctorCaseQueue = 'all' | 'unreplied' | 'response_awaited';
  * Chat case for a confirmed booking (Phase 5).
  * Opened in Slice 5.2 when booking becomes `confirmed` (DB trigger + backend heal).
  * Chat messaging is for `mode = online` only (Slice 5.12 RLS + UI).
+ * `status = completed` is set in Slice 6.7 after mandatory SOAP.
  */
 export interface Consultation extends BaseEntity {
   bookingId: string;
@@ -415,6 +445,47 @@ export interface Message {
   createdAt: string;
   /** When the peer first read this message; null until then. */
   readAt: string | null;
+}
+
+/**
+ * Doctor SOAP note for a consultation (Phase 6).
+ * Patients never receive this record; they see `Prescription.patientDiagnosis` + medicines.
+ */
+export interface SoapNote extends BaseEntity {
+  consultationId: string;
+  subjective: string | null;
+  objective: string | null;
+  assessment: string | null;
+  plan: string | null;
+  followUp: boolean;
+  /** Set when the case is clinically completed (Slice 6.7). */
+  completedAt: string | null;
+  /** `completedAt` + `SOAP_AMENDMENT_HOURS`; updates forbidden after this. */
+  amendmentDeadline: string | null;
+}
+
+/** Issued or voided Rx version. PDF path/message filled in Slice 6.4. */
+export interface Prescription extends BaseEntity {
+  consultationId: string;
+  version: number;
+  status: PrescriptionStatus;
+  /** Patient-visible diagnosis (not full SOAP). Required when `issued`. */
+  patientDiagnosis: string | null;
+  pdfPath: string | null;
+  /** Chat message that delivered the PDF (online). */
+  messageId: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+}
+
+export interface PrescriptionItem extends BaseEntity {
+  prescriptionId: string;
+  sortOrder: number;
+  drugName: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  instructions: string | null;
 }
 
 /** Metadata persisted on `messages` after a Storage upload. */
@@ -544,7 +615,11 @@ export type AuditAction =
   | 'refund.failed'
   | 'consultation.created'
   | 'consultation.status_updated'
+  | 'consultation.completed'
   | 'message.sent'
+  | 'soap.updated'
+  | 'prescription.issued'
+  | 'prescription.voided'
   | (string & {});
 
 /** Field-level change recorded in audit metadata. */
@@ -797,6 +872,47 @@ export interface MessageRow {
   read_at?: string | null;
 }
 
+export interface SoapNoteRow {
+  id: string;
+  consultation_id: string;
+  subjective: string | null;
+  objective: string | null;
+  assessment: string | null;
+  plan: string | null;
+  follow_up: boolean;
+  completed_at: string | null;
+  amendment_deadline: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PrescriptionRow {
+  id: string;
+  consultation_id: string;
+  version: number;
+  status: PrescriptionStatus;
+  patient_diagnosis: string | null;
+  pdf_path: string | null;
+  message_id: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PrescriptionItemRow {
+  id: string;
+  prescription_id: string;
+  sort_order: number;
+  drug_name: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  instructions: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 function asDayOfWeek(value: number): DayOfWeek {
   if (value >= 0 && value <= 6) return value as DayOfWeek;
   throw new Error(`Invalid day_of_week: ${value}`);
@@ -863,6 +979,12 @@ export function parseConsultationMode(value: string | string[] | undefined | nul
 
 export function consultationModeLabel(mode: ConsultationMode): string {
   return mode === 'offline' ? 'Offline' : 'Online';
+}
+
+export function consultationStatusLabel(status: ConsultationStatus): string {
+  if (status === 'in_progress') return 'In progress';
+  if (status === 'completed') return 'Completed';
+  return 'Open';
 }
 
 /** Patient/doctor-facing label for how a booking is paid. */
@@ -1008,8 +1130,55 @@ export function mapConsultationRow(row: ConsultationRow): Consultation {
   };
 }
 
+export function mapSoapNoteRow(row: SoapNoteRow): SoapNote {
+  return {
+    id: row.id,
+    consultationId: row.consultation_id,
+    subjective: row.subjective,
+    objective: row.objective,
+    assessment: row.assessment,
+    plan: row.plan,
+    followUp: row.follow_up,
+    completedAt: row.completed_at,
+    amendmentDeadline: row.amendment_deadline,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function mapPrescriptionRow(row: PrescriptionRow): Prescription {
+  return {
+    id: row.id,
+    consultationId: row.consultation_id,
+    version: row.version,
+    status: row.status,
+    patientDiagnosis: row.patient_diagnosis,
+    pdfPath: row.pdf_path,
+    messageId: row.message_id,
+    voidedAt: row.voided_at,
+    voidReason: row.void_reason,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function mapPrescriptionItemRow(row: PrescriptionItemRow): PrescriptionItem {
+  return {
+    id: row.id,
+    prescriptionId: row.prescription_id,
+    sortOrder: row.sort_order,
+    drugName: row.drug_name,
+    dosage: row.dosage,
+    frequency: row.frequency,
+    duration: row.duration,
+    instructions: row.instructions,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 /** True when the consultation belongs to a doctor case queue. */
-export function consultationMatchesQueue(
+export function   consultationMatchesQueue(
   consultation: Pick<Consultation, 'status' | 'lastMessageSenderRole'>,
   queue: DoctorCaseQueue
 ): boolean {

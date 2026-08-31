@@ -13,6 +13,8 @@ import { notFound, redirect } from 'next/navigation';
 import { ConsultationChat } from '@/components/consultation-chat';
 import { PatientMedicalRecordCard } from '@/components/patient-medical-record-card';
 import { RemoveCancelledChatButton } from '@/components/remove-cancelled-chat-button';
+import { PrescriptionForm } from '@/components/prescription-form';
+import { SoapNoteForm } from '@/components/soap-note-form';
 import { requireStaff } from '@/lib/auth';
 import { formatBookingWhen } from '@/lib/bookings';
 import {
@@ -20,6 +22,8 @@ import {
   fetchConsultationMessages,
   fetchDoctorConsultationById,
 } from '@/lib/consultations';
+import { fetchIssuedPrescription } from '@/lib/prescriptions';
+import { fetchSoapNote } from '@/lib/soap';
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -45,9 +49,14 @@ export default async function CaseThreadPage({ params }: Props) {
   const bookingCancelled = bookingStatus === 'cancelled';
   const bookingUnavailable = !bookingConfirmed && !bookingCancelled;
   const composerEnabled = chatEnabled && bookingConfirmed;
-  const messages = composerEnabled
-    ? await fetchConsultationMessages(staff.supabase, id)
-    : [];
+  const soapEnabled = bookingConfirmed;
+  const [messages, soapNote, issuedRx] = await Promise.all([
+    composerEnabled
+      ? fetchConsultationMessages(staff.supabase, id)
+      : Promise.resolve([]),
+    soapEnabled ? fetchSoapNote(staff.supabase, id) : Promise.resolve(null),
+    soapEnabled ? fetchIssuedPrescription(staff.supabase, id) : Promise.resolve(null),
+  ]);
   const backHref =
     caseRow.consultation.mode === 'offline' ? '/cases?mode=offline' : '/cases';
 
@@ -76,6 +85,17 @@ export default async function CaseThreadPage({ params }: Props) {
       </div>
 
       <PatientMedicalRecordCard patient={caseRow.patient} />
+
+      {soapEnabled ? (
+        <>
+          <SoapNoteForm consultationId={id} initialNote={soapNote} />
+          <PrescriptionForm
+            consultationId={id}
+            initialDiagnosis={soapNote?.assessment ?? ''}
+            initialIssued={issuedRx}
+          />
+        </>
+      ) : null}
 
       {bookingCancelled ? (
         <div className="space-y-4 rounded-3xl border border-border bg-surface p-6 shadow-sm">

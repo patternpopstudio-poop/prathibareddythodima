@@ -159,6 +159,11 @@ Phased plan for the Hospital Tele-Consulting Platform monorepo.
 
 **Exit criteria:** Doctor completes consultation with prescription PDF and SOAP notes in chat.
 
+> **Patient-visible vs SOAP:** Patients receive **diagnosis + medicines** (Rx PDF, or a visit summary if advice-only). Full SOAP (S/O/A/P) is doctor + admin only — never the full note on the Rx.  
+> **Phase 6 Slice 6.1:** `consultation_status` += `completed`; `soap_notes` (1:1 consultation, doctor/admin SELECT, doctor write, no patient SELECT); `prescriptions` + `prescription_items` (participants SELECT, doctor write); one issued Rx per consultation; shared-types. No UI, PDF, or complete RPC.  
+> **Phase 6 Slice 6.2:** Doctor SOAP draft + follow-up on `/cases/[id]` (confirmed online and offline). Patients never see the form.  
+> **Phase 6 Slice 6.3:** Doctor Rx form on the case — required diagnosis (synced to SOAP Assessment) + multi-drug lines. One issued Rx per case; no PDF yet.
+
 ---
 
 ## Phase 7 — Case closure, post-consultation & ratings
