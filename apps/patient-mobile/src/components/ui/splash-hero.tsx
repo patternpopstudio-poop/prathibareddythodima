@@ -1,7 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 
 import { Icon } from '@/components/ui/icon';
-import { Colors, Radius, Shadow, Spacing } from '@/constants/theme';
+import { Colors, Radius, Shadow } from '@/constants/theme';
 
 /** Composed splash illustration approximating the mockup (phone + care icons). */
 export function SplashHero() {

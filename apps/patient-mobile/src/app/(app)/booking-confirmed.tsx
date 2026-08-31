@@ -69,7 +69,10 @@ export default function BookingConfirmedScreen() {
   }, [bookingId]);
 
   useEffect(() => {
-    void load();
+    const timer = setTimeout(() => {
+      void load();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [load]);
 
   const pendingAdmin = item?.booking.status === 'pending_admin';

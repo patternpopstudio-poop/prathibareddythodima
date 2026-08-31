@@ -83,28 +83,32 @@ export function SlotPicker({
 
   // Keep calendar aligned when a slot is selected, or recover after refresh.
   useEffect(() => {
-    if (slots.length === 0) {
-      setSelectedDayKey(null);
-      return;
-    }
-
-    if (selectedSlotId) {
-      const slot = slots.find((s) => s.id === selectedSlotId);
-      if (slot) {
-        const dayKey = dayKeyFromIso(slot.startsAt);
-        setSelectedDayKey(dayKey);
-        setMonthKey(monthKeyFromDayKey(dayKey));
-        setPeriod(firstPeriodWithSlots([slot]));
+    const timer = setTimeout(() => {
+      if (slots.length === 0) {
+        setSelectedDayKey(null);
+        return;
       }
-      return;
-    }
 
-    // selectedSlotId is null (user cleared / browsing) — don't force month back.
-    setSelectedDayKey((prev) => {
-      if (prev == null) return prev;
-      if (slotsByDay.has(prev)) return prev;
-      return firstAvailableDay;
-    });
+      if (selectedSlotId) {
+        const slot = slots.find((s) => s.id === selectedSlotId);
+        if (slot) {
+          const dayKey = dayKeyFromIso(slot.startsAt);
+          setSelectedDayKey(dayKey);
+          setMonthKey(monthKeyFromDayKey(dayKey));
+          setPeriod(firstPeriodWithSlots([slot]));
+        }
+        return;
+      }
+
+      // selectedSlotId is null (user cleared / browsing) — don't force month back.
+      setSelectedDayKey((prev) => {
+        if (prev == null) return prev;
+        if (slotsByDay.has(prev)) return prev;
+        return firstAvailableDay;
+      });
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, [slots, selectedSlotId, slotsByDay, firstAvailableDay]);
 
   const daySlots = useMemo(
@@ -114,13 +118,16 @@ export function SlotPicker({
 
   useEffect(() => {
     if (daySlots.length === 0) return;
-    const stillInPeriod = daySlots.some((s) => {
-      const p = filterSlotsByPeriod([s], period);
-      return p.length > 0;
-    });
-    if (!stillInPeriod) {
-      setPeriod(firstPeriodWithSlots(daySlots));
-    }
+    const timer = setTimeout(() => {
+      const stillInPeriod = daySlots.some((s) => {
+        const p = filterSlotsByPeriod([s], period);
+        return p.length > 0;
+      });
+      if (!stillInPeriod) {
+        setPeriod(firstPeriodWithSlots(daySlots));
+      }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [daySlots, period]);
 
   const periodSlots = useMemo(

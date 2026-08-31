@@ -198,16 +198,17 @@ export default async function CasesPage({
               const fullName = patient.fullName.trim() || 'Patient';
               const shortName = formatPatientShortName(patient.fullName);
               const isOnline = mode === 'online';
-              const bookingCancelled = booking
-                ? !isBookingChatActive(booking.status)
-                : false;
+              const bookingActive = isBookingChatActive(booking?.status);
+              const bookingCancelled = booking?.status === 'cancelled';
               const statusLabel = bookingCancelled
                 ? 'Cancelled'
-                : isOnline
-                  ? consultationStatusLabel(consultation.status)
-                  : consultationModeLabel('offline');
+                : !bookingActive
+                  ? 'Booking not confirmed'
+                  : isOnline
+                    ? consultationStatusLabel(consultation.status)
+                    : consultationModeLabel('offline');
               const statusActive =
-                isOnline && !bookingCancelled && consultation.status === 'in_progress';
+                isOnline && bookingActive && consultation.status === 'in_progress';
 
               return (
                 <li
@@ -272,6 +273,8 @@ export default async function CasesPage({
                   >
                     {bookingCancelled
                       ? 'Remove chat'
+                      : !bookingActive
+                        ? 'View Case'
                       : isOnline
                         ? 'Open Consultation'
                         : 'View Visit'}

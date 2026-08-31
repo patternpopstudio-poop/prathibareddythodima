@@ -21,6 +21,7 @@ import {
   MESSAGE_ATTACHMENT_MAX_BYTES,
   MESSAGE_BODY_MAX_LENGTH,
   OFFLINE_CHAT_UNAVAILABLE_COPY,
+  UNCONFIRMED_CHAT_UNAVAILABLE_COPY,
   consultationAttachmentObjectPath,
   isBookingChatActive,
   isChatEnabledForMode,
@@ -194,14 +195,13 @@ export async function fetchDoctorConsultations(
       ? firstRelation(bookingRow.appointment_slots)
       : null;
     if (row.archived_at) continue;
-    if (mode === 'offline' && bookingRow && !isBookingChatActive(bookingRow.status)) {
+    if (mode === 'offline' && !isBookingChatActive(bookingRow?.status)) {
       continue;
     }
     if (
       mode === 'online' &&
       queue !== 'all' &&
-      bookingRow &&
-      !isBookingChatActive(bookingRow.status)
+      !isBookingChatActive(bookingRow?.status)
     ) {
       continue;
     }
@@ -450,8 +450,12 @@ async function assertDoctorChatWindow(
     throw new Error(CANCELLED_CHAT_UNAVAILABLE_COPY);
   }
   const bookingRow = firstRelation(row.bookings);
-  if (bookingRow && !isBookingChatActive(bookingRow.status)) {
-    throw new Error(CANCELLED_CHAT_UNAVAILABLE_COPY);
+  if (!bookingRow || !isBookingChatActive(bookingRow.status)) {
+    throw new Error(
+      bookingRow?.status === 'cancelled'
+        ? CANCELLED_CHAT_UNAVAILABLE_COPY
+        : UNCONFIRMED_CHAT_UNAVAILABLE_COPY
+    );
   }
   const slotRow = bookingRow ? firstRelation(bookingRow.appointment_slots) : null;
   const startsAt = slotRow?.starts_at ?? bookingRow?.preferred_starts_at ?? null;

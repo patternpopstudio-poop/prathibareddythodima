@@ -2,33 +2,33 @@
 
 import type { Consultation, Message } from '@teleconsult/shared-types';
 import {
-  DOCTOR_CHAT_LOCKED_COPY,
-  MESSAGE_BODY_MAX_LENGTH,
-  appendMessageIfNew,
-  doctorChatUnlockAtMs,
-  isDoctorChatOpen,
-  isImageAttachmentMime,
-  mapMessageRow,
-  messageReceiptLabel,
-  upsertMessageById,
-  type MessageRow,
+    DOCTOR_CHAT_LOCKED_COPY,
+    MESSAGE_BODY_MAX_LENGTH,
+    appendMessageIfNew,
+    doctorChatUnlockAtMs,
+    isDoctorChatOpen,
+    isImageAttachmentMime,
+    mapMessageRow,
+    messageReceiptLabel,
+    upsertMessageById,
+    type MessageRow,
 } from '@teleconsult/shared-types';
 import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+    type ChangeEvent,
+    type FormEvent,
 } from 'react';
 
 import {
-  consultationStatusLabel,
-  createConsultationAttachmentSignedUrl,
-  markConsultationMessagesRead,
-  sendDoctorAttachment,
-  sendDoctorMessage,
-  subscribeConsultationThread,
+    consultationStatusLabel,
+    createConsultationAttachmentSignedUrl,
+    markConsultationMessagesRead,
+    sendDoctorAttachment,
+    sendDoctorMessage,
+    subscribeConsultationThread,
 } from '@/lib/consultations';
 import { createClient } from '@/lib/supabase/client';
 
@@ -84,10 +84,32 @@ function MessageAttachment({
   }, [message.attachmentPath, url]);
 
   useEffect(() => {
-    if (isImageAttachmentMime(message.attachmentMime)) {
-      void ensureUrl();
+    if (
+      !message.attachmentPath ||
+      !isImageAttachmentMime(message.attachmentMime)
+    ) {
+      return;
     }
-  }, [ensureUrl, message.attachmentMime]);
+
+    let active = true;
+    const supabase = createClient();
+    void createConsultationAttachmentSignedUrl(
+      supabase,
+      message.attachmentPath
+    )
+      .then((signed) => {
+        if (active) setUrl(signed);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setErr(error instanceof Error ? error.message : 'Could not open file.');
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [message.attachmentMime, message.attachmentPath]);
 
   async function onOpen() {
     const signed = await ensureUrl();
@@ -203,14 +225,6 @@ export function ConsultationChat({
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
-
-  useEffect(() => {
-    setMessages(initialMessages);
-  }, [initialMessages]);
-
-  useEffect(() => {
-    setStatus(initialStatus);
-  }, [initialStatus]);
 
   useEffect(() => {
     scrollToBottom();

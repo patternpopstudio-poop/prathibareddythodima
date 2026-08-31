@@ -2,7 +2,7 @@ import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 
 import { AppText } from '@/components/ui/app-text';
 import { Icon } from '@/components/ui/icon';
-import { Colors, FontFamily, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, Spacing } from '@/constants/theme';
 
 type Props = Omit<TextInputProps, 'keyboardType'> & {
   label?: string;

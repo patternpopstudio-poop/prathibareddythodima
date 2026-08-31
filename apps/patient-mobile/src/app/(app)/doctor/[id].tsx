@@ -93,6 +93,12 @@ export default function DoctorDetailScreen() {
   const [preferredWindow, setPreferredWindow] =
     useState<PreferredWindowId>('morning');
   const [preferredNote, setPreferredNote] = useState('');
+  const [preferredDateBounds] = useState(() => {
+    const minimum = new Date();
+    const maximum = new Date(minimum);
+    maximum.setDate(maximum.getDate() + 60);
+    return { minimum, maximum };
+  });
 
   const load = useCallback(async () => {
     if (!doctorId) {
@@ -127,7 +133,10 @@ export default function DoctorDetailScreen() {
   }, [doctorId, mode]);
 
   useEffect(() => {
-    void load();
+    const timer = setTimeout(() => {
+      void load();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [load]);
 
   const selectedSlot = useMemo(
@@ -321,10 +330,8 @@ export default function DoctorDetailScreen() {
                     label="Preferred date"
                     value={preferredDate}
                     onChange={setPreferredDate}
-                    minimumDate={new Date()}
-                    maximumDate={
-                      new Date(Date.now() + 1000 * 60 * 60 * 24 * 60)
-                    }
+                    minimumDate={preferredDateBounds.minimum}
+                    maximumDate={preferredDateBounds.maximum}
                     placeholder="Select preferred date"
                   />
                   <View style={styles.windowBlock}>

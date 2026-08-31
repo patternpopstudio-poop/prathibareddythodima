@@ -11,7 +11,6 @@ import { Icon, type AppIconName } from '@/components/ui/icon';
 import { InitialsAvatar } from '@/components/ui/initials-avatar';
 import { Screen } from '@/components/ui/screen';
 import { EXPLORE_CARE, QUICK_ACTIONS } from '@/constants/clinic';
-import { BrandImages } from '@/constants/images';
 import { Colors, Radius, Shadow, Spacing } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { fetchNextUpcomingBooking, type UpcomingBooking } from '@/lib/bookings';

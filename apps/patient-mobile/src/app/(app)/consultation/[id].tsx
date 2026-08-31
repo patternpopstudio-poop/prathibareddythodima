@@ -2,6 +2,7 @@ import {
   CANCELLED_CHAT_UNAVAILABLE_COPY,
   MESSAGE_BODY_MAX_LENGTH,
   OFFLINE_CHAT_UNAVAILABLE_COPY,
+  UNCONFIRMED_CHAT_UNAVAILABLE_COPY,
   appendMessageIfNew,
   isBookingChatActive,
   isChatEnabledForMode,
@@ -310,10 +311,16 @@ export default function ConsultationThreadScreen() {
   const chatEnabled = caseRow
     ? isChatEnabledForMode(caseRow.consultation.mode)
     : false;
+  const bookingStatus = caseRow?.booking?.status ?? null;
+  const bookingConfirmed = isBookingChatActive(bookingStatus);
   const bookingCancelled =
     Boolean(caseRow?.consultation.archivedAt) ||
-    (caseRow?.booking ? !isBookingChatActive(caseRow.booking.status) : false);
-  const composerEnabled = chatEnabled && !bookingCancelled;
+    bookingStatus === 'cancelled';
+  const bookingUnavailable =
+    Boolean(caseRow) && !bookingConfirmed && !bookingCancelled;
+  const composerEnabled = chatEnabled && bookingConfirmed && !bookingCancelled;
+  const showOfflineGate =
+    Boolean(caseRow) && !chatEnabled && !bookingCancelled && !bookingUnavailable;
 
   return (
     <Screen scroll={false} padded={false}>
@@ -363,7 +370,18 @@ export default function ConsultationThreadScreen() {
           </View>
         ) : null}
 
-        {!loading && caseRow && !chatEnabled && !bookingCancelled ? (
+        {!loading && caseRow && bookingUnavailable ? (
+          <View style={styles.offlineGate}>
+            <AppText variant="h3" style={styles.offlineTitle}>
+              {UNCONFIRMED_CHAT_UNAVAILABLE_COPY}
+            </AppText>
+            <AppText variant="muted" style={styles.offlineBody}>
+              Messaging and attachments open after the appointment is confirmed.
+            </AppText>
+          </View>
+        ) : null}
+
+        {!loading && showOfflineGate ? (
           <View style={styles.offlineGate}>
             <AppText variant="h3" style={styles.offlineTitle}>
               {OFFLINE_CHAT_UNAVAILABLE_COPY}

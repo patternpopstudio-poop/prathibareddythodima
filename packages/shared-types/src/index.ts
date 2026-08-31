@@ -826,11 +826,15 @@ export const DOCTOR_CHAT_LOCKED_COPY =
 export const CANCELLED_CHAT_UNAVAILABLE_COPY =
   'This appointment was cancelled. Chat is no longer available.';
 
-/** Chat send is allowed only for a live (non-cancelled) booking. */
+/** Patient/doctor copy when a booking is not yet confirmed. */
+export const UNCONFIRMED_CHAT_UNAVAILABLE_COPY =
+  'Chat is available only for confirmed appointments.';
+
+/** Chat send is allowed only for a confirmed booking. */
 export function isBookingChatActive(
   status: BookingStatus | string | null | undefined
 ): boolean {
-  return status !== 'cancelled' && status !== 'rejected';
+  return status === 'confirmed';
 }
 
 /** Instant the doctor may first send (slot start minus 10 minutes). */

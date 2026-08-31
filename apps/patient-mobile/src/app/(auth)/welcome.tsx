@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,7 +11,7 @@ import { Colors, Radius } from '@/constants/theme';
 /** Exact splash from the design mockup — edge-to-edge. */
 export default function WelcomeScreen() {
   const insets = useSafeAreaInsets();
-  const progress = useRef(new Animated.Value(0.28)).current;
+  const [progress] = useState(() => new Animated.Value(0.28));
 
   useEffect(() => {
     Animated.timing(progress, {

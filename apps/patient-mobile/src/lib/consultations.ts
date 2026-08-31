@@ -16,6 +16,7 @@ import {
   MESSAGE_ATTACHMENT_MAX_BYTES,
   MESSAGE_BODY_MAX_LENGTH,
   OFFLINE_CHAT_UNAVAILABLE_COPY,
+  UNCONFIRMED_CHAT_UNAVAILABLE_COPY,
   consultationAttachmentObjectPath,
   isBookingChatActive,
   isChatEnabledForMode,
@@ -84,7 +85,7 @@ export async function fetchPatientConsultations(
     const doctorRow = firstRelation(row.doctors);
     if (!doctorRow) continue;
     const bookingRow = firstRelation(row.bookings);
-    if (bookingRow && !isBookingChatActive(bookingRow.status)) continue;
+    if (!bookingRow || !isBookingChatActive(bookingRow.status)) continue;
     if (row.archived_at) continue;
     const latest = row.messages?.[0];
     mapped.push({
@@ -174,8 +175,12 @@ async function assertOnlineChat(consultationId: string): Promise<void> {
   }
   const booking = Array.isArray(data?.bookings) ? data.bookings[0] : data?.bookings;
   const status = booking && typeof booking === 'object' ? booking.status : null;
-  if (status && !isBookingChatActive(status)) {
-    throw new Error(CANCELLED_CHAT_UNAVAILABLE_COPY);
+  if (!isBookingChatActive(status)) {
+    throw new Error(
+      status === 'cancelled'
+        ? CANCELLED_CHAT_UNAVAILABLE_COPY
+        : UNCONFIRMED_CHAT_UNAVAILABLE_COPY
+    );
   }
 }
 

@@ -40,13 +40,6 @@ export default function VerifyOtpScreen() {
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    if (otp.length === 6) {
-      void onVerify(otp);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- verify when OTP complete
-  }, [otp]);
-
   async function onVerify(code: string) {
     if (!phone || loading) return;
     setError(null);
@@ -108,7 +101,13 @@ export default function VerifyOtpScreen() {
           <AppText variant="label" style={styles.otpLabel}>
             Enter the 6-digit OTP
           </AppText>
-          <OtpInput value={otp} onChange={setOtp} />
+          <OtpInput
+            value={otp}
+            onChange={(value) => {
+              setOtp(value);
+              if (value.length === 6) void onVerify(value);
+            }}
+          />
 
           <View style={styles.expireBar}>
             <Icon name="shield" size={18} color={Colors.primary900} />

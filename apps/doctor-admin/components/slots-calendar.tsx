@@ -4,18 +4,17 @@ import type { AppointmentSlot } from '@teleconsult/shared-types';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  buildMonthDayChips,
-  dayKeyFromIso,
-  filterSlotsByPeriod,
-  firstPeriodWithSlots,
-  formatMonthYear,
-  formatSlotChipTime,
-  groupSlotsByDay,
-  monthKeyFromDate,
-  monthKeyFromDayKey,
-  shiftMonthKey,
-  SLOT_PERIODS,
-  type SlotPeriod,
+    buildMonthDayChips,
+    filterSlotsByPeriod,
+    firstPeriodWithSlots,
+    formatMonthYear,
+    formatSlotChipTime,
+    groupSlotsByDay,
+    monthKeyFromDate,
+    monthKeyFromDayKey,
+    shiftMonthKey,
+    SLOT_PERIODS,
+    type SlotPeriod
 } from '@/lib/slot-calendar';
 
 const MAX_MONTHS_AHEAD = 6;
@@ -35,48 +34,43 @@ export function SlotsCalendar({ slots, busy = false, onDeleteSlot }: Props) {
     return keys[0] ?? null;
   }, [slotsByDay]);
 
-  const [monthKey, setMonthKey] = useState(
+  const [selectedMonthKey, setSelectedMonthKey] = useState(
     () =>
       (firstAvailableDay
         ? monthKeyFromDayKey(firstAvailableDay)
         : monthKeyFromDate(new Date()))
   );
-  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(
+  const [selectedDayChoice, setSelectedDayChoice] = useState<
+    string | null | undefined
+  >(
     () => firstAvailableDay
   );
-  const [period, setPeriod] = useState<SlotPeriod>('morning');
-  const didAutoSelect = useRef(false);
+  const [selectedPeriod, setSelectedPeriod] = useState<SlotPeriod>('morning');
 
-  useEffect(() => {
-    if (didAutoSelect.current || !firstAvailableDay) return;
-    didAutoSelect.current = true;
-    setSelectedDayKey(firstAvailableDay);
-    setMonthKey(monthKeyFromDayKey(firstAvailableDay));
-    setPeriod(firstPeriodWithSlots(slotsByDay.get(firstAvailableDay) ?? []));
-  }, [firstAvailableDay, slotsByDay]);
-
-  useEffect(() => {
-    if (slots.length === 0) {
-      setSelectedDayKey(null);
-      return;
-    }
-    setSelectedDayKey((prev) => {
-      if (prev == null) return firstAvailableDay;
-      if (slotsByDay.has(prev)) return prev;
-      return firstAvailableDay;
-    });
-  }, [slots, slotsByDay, firstAvailableDay]);
+  const selectedDayKey =
+    selectedDayChoice === null
+      ? null
+      : selectedDayChoice && slotsByDay.has(selectedDayChoice)
+        ? selectedDayChoice
+        : firstAvailableDay;
+  const selectionNeedsFallback =
+    selectedDayChoice !== null &&
+    (!selectedDayChoice || !slotsByDay.has(selectedDayChoice));
+  const monthKey =
+    selectionNeedsFallback && selectedDayKey
+      ? monthKeyFromDayKey(selectedDayKey)
+      : selectedMonthKey;
 
   const daySlots = useMemo(
     () => (selectedDayKey ? (slotsByDay.get(selectedDayKey) ?? []) : []),
     [selectedDayKey, slotsByDay]
   );
 
-  useEffect(() => {
-    if (daySlots.length === 0) return;
-    const hasPeriod = filterSlotsByPeriod(daySlots, period).length > 0;
-    if (!hasPeriod) setPeriod(firstPeriodWithSlots(daySlots));
-  }, [daySlots, period]);
+  const period =
+    daySlots.length > 0 &&
+    filterSlotsByPeriod(daySlots, selectedPeriod).length === 0
+      ? firstPeriodWithSlots(daySlots)
+      : selectedPeriod;
 
   const periodSlots = useMemo(
     () => filterSlotsByPeriod(daySlots, period),
@@ -96,22 +90,22 @@ export function SlotsCalendar({ slots, busy = false, onDeleteSlot }: Props) {
   function goMonth(delta: number) {
     const next = shiftMonthKey(monthKey, delta);
     if (next < todayMonthKey || next > maxMonthKey) return;
-    setMonthKey(next);
+    setSelectedMonthKey(next);
     const firstInMonth = buildMonthDayChips(next, slotsByDay).find((c) => c.hasSlots);
     if (firstInMonth) {
       const list = slotsByDay.get(firstInMonth.dayKey) ?? [];
-      setSelectedDayKey(firstInMonth.dayKey);
-      setPeriod(firstPeriodWithSlots(list));
+      setSelectedDayChoice(firstInMonth.dayKey);
+      setSelectedPeriod(firstPeriodWithSlots(list));
     } else {
-      setSelectedDayKey(null);
+      setSelectedDayChoice(null);
     }
   }
 
   function selectDay(dayKey: string) {
     const list = slotsByDay.get(dayKey);
     if (!list?.length) return;
-    setSelectedDayKey(dayKey);
-    setPeriod(firstPeriodWithSlots(list));
+    setSelectedDayChoice(dayKey);
+    setSelectedPeriod(firstPeriodWithSlots(list));
   }
 
   useEffect(() => {
@@ -194,7 +188,7 @@ export function SlotsCalendar({ slots, busy = false, onDeleteSlot }: Props) {
               key={id}
               type="button"
               disabled={busy}
-              onClick={() => setPeriod(id)}
+              onClick={() => setSelectedPeriod(id)}
               className="relative flex-1 px-1 py-2 text-center text-sm font-medium transition disabled:opacity-60"
             >
               <span

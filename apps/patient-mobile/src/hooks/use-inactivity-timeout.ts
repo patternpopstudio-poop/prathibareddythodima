@@ -8,9 +8,12 @@ const INACTIVITY_MS = 30 * 60 * 1000;
  * Signs out after 30 minutes without app interaction / foreground activity.
  */
 export function useInactivityTimeout(enabled: boolean, onTimeout: () => void) {
-  const lastActiveRef = useRef(Date.now());
+  const lastActiveRef = useRef(0);
   const onTimeoutRef = useRef(onTimeout);
-  onTimeoutRef.current = onTimeout;
+
+  useEffect(() => {
+    onTimeoutRef.current = onTimeout;
+  }, [onTimeout]);
 
   useEffect(() => {
     if (!enabled) return;

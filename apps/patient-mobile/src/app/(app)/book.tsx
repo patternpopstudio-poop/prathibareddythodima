@@ -119,12 +119,16 @@ export default function BookScreen() {
   );
 
   useEffect(() => {
-    if (!selectedMode || doctors.length === 0) {
-      setAvailabilityByDoctor({});
-      setAvailabilityLoading(false);
-      return;
-    }
-    void loadAvailability(selectedMode, doctors);
+    const timer = setTimeout(() => {
+      if (!selectedMode || doctors.length === 0) {
+        setAvailabilityByDoctor({});
+        setAvailabilityLoading(false);
+        return;
+      }
+      void loadAvailability(selectedMode, doctors);
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, [selectedMode, doctors, loadAvailability]);
 
   function setMode(mode: ConsultationMode) {

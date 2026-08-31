@@ -237,7 +237,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     await loadPatient(session.user.id);
-  }, [loadPatient, session?.user]);
+  }, [loadPatient, session]);
 
   const saveBasicDetails = useCallback(
     async (input: PatientBasicDetailsInput) => {
@@ -245,7 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const updated = await savePatientBasicDetails(session.user.id, input);
       setPatient(updated);
     },
-    [session?.user]
+    [session]
   );
 
   const completeOnboarding = useCallback(
@@ -254,7 +254,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const updated = await completePatientOnboarding(session.user.id, input);
       setPatient(updated);
     },
-    [session?.user]
+    [session]
   );
 
   const role = getUserRole(session?.user);

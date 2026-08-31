@@ -1,6 +1,7 @@
 import {
   CANCELLED_CHAT_UNAVAILABLE_COPY,
   OFFLINE_CHAT_UNAVAILABLE_COPY,
+  UNCONFIRMED_CHAT_UNAVAILABLE_COPY,
   bookingPaymentStatusLabel,
   consultationModeLabel,
   isBookingChatActive,
@@ -10,6 +11,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { ConsultationChat } from '@/components/consultation-chat';
+import { PatientMedicalRecordCard } from '@/components/patient-medical-record-card';
 import { RemoveCancelledChatButton } from '@/components/remove-cancelled-chat-button';
 import { requireStaff } from '@/lib/auth';
 import { formatBookingWhen } from '@/lib/bookings';
@@ -38,10 +40,11 @@ export default async function CaseThreadPage({ params }: Props) {
 
   const patientName = caseRow.patient.fullName.trim() || 'Patient';
   const chatEnabled = isChatEnabledForMode(caseRow.consultation.mode);
-  const bookingCancelled = caseRow.booking
-    ? !isBookingChatActive(caseRow.booking.status)
-    : false;
-  const composerEnabled = chatEnabled && !bookingCancelled;
+  const bookingStatus = caseRow.booking?.status ?? null;
+  const bookingConfirmed = isBookingChatActive(bookingStatus);
+  const bookingCancelled = bookingStatus === 'cancelled';
+  const bookingUnavailable = !bookingConfirmed && !bookingCancelled;
+  const composerEnabled = chatEnabled && bookingConfirmed;
   const messages = composerEnabled
     ? await fetchConsultationMessages(staff.supabase, id)
     : [];
@@ -63,12 +66,16 @@ export default async function CaseThreadPage({ params }: Props) {
                 ? ` · ${consultationStatusLabel(caseRow.consultation.status)}`
                 : bookingCancelled
                   ? ' · Cancelled'
-                  : ' · In-clinic'}
+                  : bookingUnavailable
+                    ? ' · Booking not confirmed'
+                    : ' · In-clinic'}
               {caseRow.patient.mobile ? ` · ${caseRow.patient.mobile}` : ''}
             </p>
           </div>
         </div>
       </div>
+
+      <PatientMedicalRecordCard patient={caseRow.patient} />
 
       {bookingCancelled ? (
         <div className="space-y-4 rounded-3xl border border-border bg-surface p-6 shadow-sm">
@@ -76,13 +83,24 @@ export default async function CaseThreadPage({ params }: Props) {
             {CANCELLED_CHAT_UNAVAILABLE_COPY}
           </p>
           <p className="text-sm text-muted">
-            The patient cancelled this appointment. You can remove it from Cases. Message
-            history is kept.
+            This appointment was cancelled. You can remove it from Cases. Message history
+            is kept.
           </p>
           <RemoveCancelledChatButton
             consultationId={id}
             doctorUserId={staff.userId}
           />
+        </div>
+      ) : null}
+
+      {bookingUnavailable ? (
+        <div className="space-y-2 rounded-3xl border border-border bg-surface p-6 shadow-sm">
+          <p className="text-sm font-semibold text-foreground">
+            {UNCONFIRMED_CHAT_UNAVAILABLE_COPY}
+          </p>
+          <p className="text-sm text-muted">
+            This case cannot send messages or attachments until its booking is confirmed.
+          </p>
         </div>
       ) : null}
 
@@ -96,7 +114,7 @@ export default async function CaseThreadPage({ params }: Props) {
             caseRow.slot?.startsAt ?? caseRow.booking?.preferredStartsAt ?? null
           }
         />
-      ) : !bookingCancelled ? (
+      ) : !bookingCancelled && !bookingUnavailable ? (
         <div className="space-y-4 rounded-3xl border border-border bg-surface p-6 shadow-sm">
           <div className="space-y-1">
             <p className="text-sm font-semibold text-foreground">
